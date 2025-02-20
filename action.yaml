@@ -1,0 +1,231 @@
+name: 'Bricks CLI Action'
+description: 'Manages Bricks CLI operations for Infrastructure as Code'
+author: 'Bluebricks Ltd.'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  command:
+    description: 'Primary Bricks command (bprint, bp, clouds, env, install, publish, updateci, etc)'
+    required: true
+  subcommand:
+    description: 'Subcommand for the primary command (publish, bump, prepare, etc)'
+    required: false
+  package:
+    description: 'Package name for operations that require it'
+    required: false
+  version:
+    description: 'Version specification for version-related commands'
+    required: false
+  props:
+    description: 'JSON string of properties'
+    required: false
+  props-file:
+    description: 'Path to JSON properties file for install command'
+    required: false
+  config-file:
+    description: 'Path to Bricks config file'
+    required: false
+    default: '$HOME/.bricks/config.yaml'
+  api-key:
+    description: 'Bricks API key for authentication'
+    required: true
+  src:
+    description: 'Source path for blueprint operations'
+    required: false
+    default: '.'
+  bump_type:
+    description: 'Type of version bump (major, minor, patch)'
+    required: false
+  artifacts-folder:
+    description: 'Path to artifacts folder'
+    required: false
+    default: 'bluebricks/packages'
+  blueprints-folder:
+    description: 'Path to blueprints folder'
+    required: false
+    default: 'bluebricks/blueprints'
+  artifact-bump:
+    description: 'Version bump type for packages'
+    required: false
+    default: 'patch'
+  blueprint-bump:
+    description: 'Version bump type for blueprints'
+    required: false
+    default: 'patch'
+  output:
+    description: 'Output format (ascii or json)'
+    required: false
+    default: 'ascii'
+  base:
+    description: 'Base branch for git diff'
+    required: false
+    default: 'origin/main'
+  head:
+    description: 'Head for git diff'
+    required: false
+    default: 'HEAD'
+  flags:
+    description: 'Additional flags to be added to any command (e.g., --dry)'
+    required: false
+
+outputs:
+  has_changes:
+    description: 'Boolean indicating whether any changes were detected and applied'
+    value: ${{ steps.bricks-command.outputs.has_changes }}
+  changes_summary:
+    description: 'Formatted summary of all version changes made to artifacts and blueprints'
+    value: ${{ steps.bricks-command.outputs.changes_summary }}
+  dependency_graph:
+    description: 'Visual representation of the dependency relationships between updated components'
+    value: ${{ steps.bricks-command.outputs.dependency_graph }}
+  error:
+    description: 'Error message if the command failed'
+    value: ${{ steps.bricks-command.outputs.error }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Bricks CLI
+      shell: bash
+      run: |
+        /bin/bash -c "$(curl -fsSL https://brickscli.s3.eu-west-1.amazonaws.com/releases/latest/install.sh)"
+        mkdir -p $HOME/.bricks
+        echo "token: Bearer ${{ inputs.api-key }}" > $HOME/.bricks/credentials.yaml
+        echo "userid: api_key" >> $HOME/.bricks/credentials.yaml
+        cat "${{ inputs.config-file }}" > $HOME/.bricks/config.yaml
+        bricks version
+
+    - name: Configure Git user
+      shell: bash
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Configure Git Remote for Push
+      shell: bash
+      run: |
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+        git remote -v
+
+    - name: Run Bricks Command
+      id: bricks-command
+      shell: bash
+      run: ${{ github.action_path }}/entrypoint.sh
+      env:
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_SUBCOMMAND: ${{ inputs.subcommand }}
+        INPUT_PACKAGE: ${{ inputs.package }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_PROPS: ${{ inputs.props }}
+        INPUT_PROPS_FILE: ${{ inputs['props-file'] }}
+        INPUT_BUMP_TYPE: ${{ inputs.bump_type }}
+        INPUT_SRC: ${{ inputs.src }}
+        INPUT_ARTIFACTS_FOLDER: ${{ inputs['artifacts-folder'] }}
+        INPUT_BLUEPRINTS_FOLDER: ${{ inputs['blueprints-folder'] }}
+        INPUT_ARTIFACT_BUMP: ${{ inputs['artifact-bump'] }}
+        INPUT_BLUEPRINT_BUMP: ${{ inputs['blueprint-bump'] }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD: ${{ inputs.head }}
+        INPUT_FLAGS: ${{ inputs.flags }}
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+
+    - name: Comment on PR
+      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && (steps.bricks-command.outputs.has_changes == 'true' || steps.bricks-command.outputs.error != '')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Helper functions for formatting
+          function formatVersionChange(from, to) {
+            if (from === to) {
+              return `\`${from}\` *(no change)*`;
+            }
+            return `\`${from}\` → \`${to}\``;
+          }
+
+          function formatAffectedBy(affects) {
+            if (!affects) return '';
+            return ` *(affected by: ${affects.trim()})*`;
+          }
+
+          // Format the update report from the summary text
+          const formatUpdateReport = (summary) => {
+            const lines = summary.split('\n');
+            let formattedSummary = '';
+            lines.forEach(line => {
+              if (line.includes('Changed Artifacts:')) {
+                formattedSummary += '### 📦 Changed Artifacts\n\n';
+              } else if (line.includes('Updated Blueprints:')) {
+                formattedSummary += '### 📘 Updated Blueprints\n\n';
+              } else if (line.trim().startsWith('-')) {
+                const cleaned = line.replace('-', '').trim();
+                const parts = cleaned.split(':');
+                if (parts.length >= 2) {
+                  const name = parts[0].trim();
+                  const versionInfo = parts.slice(1).join(':').trim();
+                  const [from, rest] = versionInfo.split('→');
+                  if (from && rest) {
+                    let to = rest;
+                    let affected = '';
+                    const affectedMatch = rest.match(/\(affected by changes in:(.*)\)/);
+                    if (affectedMatch) {
+                      to = rest.substring(0, affectedMatch.index).trim();
+                      affected = affectedMatch[1].replace(')', '').trim();
+                    }
+                    formattedSummary += `- **${name}**: ${formatVersionChange(from.trim(), to.trim())}${formatAffectedBy(affected)}\n`;
+                  }
+                }
+              }
+            });
+            return formattedSummary;
+          };
+
+          // Retrieve summary and dependency graph from environment
+          const summaryContent = process.env.CHANGES_SUMMARY || '';
+          const formattedContent = formatUpdateReport(summaryContent);
+
+          // Determine if this run is a dry run based on INPUT_FLAGS
+          const isDryRun = process.env.INPUT_FLAGS && process.env.INPUT_FLAGS.includes('--dry');
+
+          // Build the comment body with the Bluebricks image at the top
+          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/public" width="200">
+
+          ### 🧱 Bricks Update Summary ${isDryRun ? '(PREVIEW)' : ''}
+
+          ${formattedContent}
+          `;
+
+          if (isDryRun) {
+            // For dry-run mode, add a preview note and dependency graph
+            body += `
+          > **NOTE:** This is a preview of the changes. No packages have been published yet.
+
+          <details>
+          <summary>📊 Dependency Graph</summary>
+
+          \`\`\`md
+          ${process.env.DEPENDENCY_GRAPH}
+          \`\`\`
+          </details>
+          `;
+          }
+
+          // Append the final signature
+          body += `
+
+          <sub>Updated with 💙 by Bluebricks</sub>`;
+
+                // Post the comment on the PR
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+      env:
+        CHANGES_SUMMARY: ${{ steps.bricks-command.outputs.changes_summary }}
+        DEPENDENCY_GRAPH: ${{ steps.bricks-command.outputs.dependency_graph }}
+        ERROR_MESSAGE: ${{ steps.bricks-command.outputs.error }}
+        INPUT_FLAGS: ${{ inputs.flags }}
