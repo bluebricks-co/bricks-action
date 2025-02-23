@@ -2,9 +2,8 @@
 
 > [GitHub Action](https://github.com/features/actions) for running [Bricks CLI](https://docs.bluebricks.co/bluebricks-documentation/bricks-cli/commands-reference) commands in your workflows
 
-[![GitHub Release](https://img.shields.io/github/release/bluebricks-co/bricks-action.svg?logo=github)](https://github.com/bluebricks-co/bricks-action/releases/latest)  
+[![GitHub Release](https://img.shields.io/github/release/bluebricks-co/bricks-action.svg?logo=github)](https://github.com/bluebricks-co/bricks-action/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/bluebricks-co/bricks-action.svg)](LICENSE)
-
 ![](docs/images/bricks-action.png)
 
 ---
@@ -155,7 +154,7 @@ For a complete list and details, see the [Bricks CLI Commands Reference](https:/
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [Apache License](LICENSE).
 
 ---
 
