@@ -86,15 +86,17 @@ tmpfile_err=$(mktemp)
 # Capture both stdout and stderr separately
 echo "Running command with arguments: ${CMD[*]}"
 
-# Run the command directly and capture output using tee
-# This allows interactive commands to work while still capturing output
+# Run command with detailed output to help with debugging
+
+# Run the command directly and capture both stdout and stderr
+# This allows interactive behavior while still capturing all output
 "${CMD[@]}" 2>&1 | tee "$tmpfile" || {
   echo "::error::Command execution failed: ${CMD[*]}"
   echo "error=\"Command execution failed: ${CMD[*]}\"" >> "$GITHUB_OUTPUT"
   exit 1
 }
 
-# Since we're now combining stdout and stderr, we'll copy the content to stderr file for compatibility
+# Since we're combining stdout and stderr, copy to stderr file for compatibility
 cp "$tmpfile" "$tmpfile_err"
 
 # Print the captured output for debugging
@@ -159,7 +161,6 @@ if [ "$INPUT_COMMAND" == "install" ]; then
     echo "DEBUG: Extracting plan ID from output..."
 
     # Extract plan ID from regular deployment output - using multiple patterns
-    # Debug: print potential matches for plan IDs
     echo "DEBUG: Looking for URL patterns..."
     echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No direct URL matches found"
     echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No partial URL matches found"
@@ -187,36 +188,42 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
     fi
     
+    # Set API URL regardless of whether we found a plan ID
+    if [ -n "$INPUT_API_URL" ]; then
+      api_url="$INPUT_API_URL"
+    else
+      api_url="https://api.bluebricks.co"
+    fi
+    
     if [ -n "$plan_id" ]; then
+      # We found a valid plan ID
       echo "Plan ID found: $plan_id"
       echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
       
-      # Fetch the SVG visualization if we have a deployment ID and API URL
-      if [ -n "$INPUT_API_URL" ]; then
-        api_url="$INPUT_API_URL"
-      else
-        api_url="https://api.bluebricks.co"
-      fi
-      
       echo "Fetching SVG visualization for plan $plan_id from $api_url..."
-      
       # Get the SVG from the API, handle errors gracefully
       svg_response=$(curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY")
+      
       if [[ "$svg_response" == *"<svg"* ]]; then
         # Base64 encode the SVG for embedding in markdown
         svg_base64=$(echo "$svg_response" | base64)
         echo "plan_svg=$svg_base64" >> "$GITHUB_OUTPUT"
         echo "Successfully fetched SVG visualization"
       else
-        echo "Failed to fetch SVG visualization: $svg_response"
+        echo "WARNING: Failed to fetch SVG visualization: $svg_response"
         echo "::warning::Failed to fetch SVG visualization: Plan ID may be valid but SVG endpoint returned an error"
       fi
     else
+      # No plan ID found - generate a synthetic one for CI purposes
+      echo "WARNING: No plan ID found in command output"
       echo "::warning::No plan ID found in the command output"
-      echo "Command output was empty or did not contain a plan ID"
-      echo "Attempting to generate a synthetic plan ID for testing purposes..."
+      echo "Generating synthetic plan ID for CI purposes..."
       
-      # Generate a synthetic plan ID for testing if needed
+      synthetic_plan_id="synthetic-$(date +%s)"
+      echo "plan_id=$synthetic_plan_id" >> "$GITHUB_OUTPUT"
+      echo "Using synthetic plan ID: $synthetic_plan_id"
+      
+      # Handle plan-only mode differently
       if [ "$INPUT_PLAN_ONLY" == "true" ]; then
         # For plan-only mode, create a mock deployment plan JSON
         echo "Creating mock deployment plan for CI..."
@@ -226,11 +233,6 @@ if [ "$INPUT_COMMAND" == "install" ]; then
           echo "$mock_plan"
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
-      else
-        # For actual deployment, set a dummy plan ID so downstream jobs don't fail
-        dummy_plan_id="ci-$(date +%s)"
-        echo "Setting dummy plan_id=$dummy_plan_id for CI purposes"
-        echo "plan_id=$dummy_plan_id" >> "$GITHUB_OUTPUT"
       fi
       
       echo "STDOUT contents:"
