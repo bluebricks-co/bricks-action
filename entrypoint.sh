@@ -79,20 +79,10 @@ fi
 
 echo "Executing: ${CMD[*]}"
 echo "----------------------------------------"
-# Capture the output of the bricks command and print it to stdout.
+
+# Create temporary files for output capture
 tmpfile=$(mktemp)
 tmpfile_err=$(mktemp)
-
-# Capture both stdout and stderr separately
-echo "Running command with arguments: ${CMD[*]}"
-
-# Run command with detailed output to help with debugging
-
-# Print the exact command being executed for better troubleshooting
-echo "DEBUG: Executing exact command: ${CMD[*]}"
-
-# Simple approach: run the command and capture output directly
-echo "DEBUG: Running command and capturing output"
 
 # Ensure we're in the right context for command execution
 [ -n "$INPUT_FILE" ] && [ ! -f "$INPUT_FILE" ] && echo "Warning: Input file not found: $INPUT_FILE" >&2
@@ -100,14 +90,19 @@ echo "DEBUG: Running command and capturing output"
 # Run the command and capture output
 echo "Running command: ${CMD[*]}"
 
-# Execute command and capture output to both the log and a file
-"${CMD[@]}" 2>&1 | tee "$tmpfile"
-CMD_EXIT_CODE=${PIPESTATUS[0]}
+# Execute command and capture output to both the log and files
+"${CMD[@]}" > "$tmpfile" 2> "$tmpfile_err"
+CMD_EXIT_CODE=$?
+
+# Display the output for logging purposes
+cat "$tmpfile"
+cat "$tmpfile_err" >&2
 
 # Save the output to GitHub outputs for other steps to use
-if [ -s "$tmpfile" ]; then
+if [ -s "$tmpfile" ] || [ -s "$tmpfile_err" ]; then
   echo "command_output<<EOF" >> "$GITHUB_OUTPUT"
   cat "$tmpfile" >> "$GITHUB_OUTPUT"
+  cat "$tmpfile_err" >> "$GITHUB_OUTPUT"
   echo "EOF" >> "$GITHUB_OUTPUT"
   echo "no_output=false" >> "$GITHUB_OUTPUT"
 else
@@ -121,15 +116,12 @@ if [ $CMD_EXIT_CODE -ne 0 ]; then
   exit 1
 fi
 
-# Check if the output file is empty
-if [ ! -s "$tmpfile" ]; then
+# Check if both output files are empty
+if [ ! -s "$tmpfile" ] && [ ! -s "$tmpfile_err" ]; then
   echo "::warning::Command produced no output: ${CMD[*]}"
   # Ensure we have something in the file for processing
   echo "[NO_OUTPUT_PRODUCED_BY_COMMAND]" > "$tmpfile"
 fi
-
-# Since we're combining stdout and stderr, copy to stderr file for compatibility
-cp "$tmpfile" "$tmpfile_err"
 
 # Print the captured output
 echo "---- STDOUT ----"
