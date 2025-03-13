@@ -246,6 +246,7 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       # Set empty plan ID in GitHub output
       echo "plan_id=" >> "$GITHUB_OUTPUT"
       
+      # Check if we have an SVG response despite not having a plan ID
       if [[ "$svg_response" == *"<svg"* ]]; then
         # Base64 encode the SVG for embedding in markdown
         svg_base64=$(echo "$svg_response" | base64)
@@ -254,17 +255,17 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       else
         echo "WARNING: Failed to fetch SVG visualization"
         echo "::warning::Failed to fetch SVG visualization: Plan ID may be valid but SVG endpoint returned an error"
+        
+        # Generate a synthetic one for CI purposes
+        echo "WARNING: No plan ID found in command output"
+        echo "::warning::No plan ID found in the command output"
+        
+        # Create a descriptive synthetic ID that includes the command type for better traceability
+        timestamp=$(date +%s)
+        synthetic_plan_id="synthetic-${INPUT_COMMAND}-$timestamp"
+        echo "Generating synthetic plan ID for CI purposes: $synthetic_plan_id"
+        echo "plan_id=$synthetic_plan_id" >> "$GITHUB_OUTPUT"
       fi
-    else
-      # No plan ID found - generate a synthetic one for CI purposes
-      echo "WARNING: No plan ID found in command output"
-      echo "::warning::No plan ID found in the command output"
-      
-      # Create a descriptive synthetic ID that includes the command type for better traceability
-      timestamp=$(date +%s)
-      synthetic_plan_id="synthetic-${INPUT_COMMAND}-$timestamp"
-      echo "Generating synthetic plan ID for CI purposes: $synthetic_plan_id"
-      echo "plan_id=$synthetic_plan_id" >> "$GITHUB_OUTPUT"
       
       # Handle plan-only mode differently
       if [ "$INPUT_PLAN_ONLY" == "true" ]; then
