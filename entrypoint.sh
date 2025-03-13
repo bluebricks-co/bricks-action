@@ -97,36 +97,22 @@ echo "DEBUG: Running command and capturing output"
 # Ensure we're in the right context for command execution
 [ -n "$INPUT_FILE" ] && [ ! -f "$INPUT_FILE" ] && echo "Warning: Input file not found: $INPUT_FILE" >&2
 
-# Run the command and capture output using a reliable approach
+# Run the command and capture output
 echo "Running command: ${CMD[*]}"
 
-# Use GitHub Actions outputs to capture command output directly
-# This approach is more reliable in GitHub Actions environments
-
-# Execute command and capture output to GitHub outputs
-echo "command_output<<EOF" >> "$GITHUB_OUTPUT"
-"${CMD[@]}" 2>&1 | tee -a "$GITHUB_OUTPUT"
+# Execute command and capture output to both the log and a file
+"${CMD[@]}" 2>&1 | tee "$tmpfile"
 CMD_EXIT_CODE=${PIPESTATUS[0]}
-echo "EOF" >> "$GITHUB_OUTPUT"
 
-# Also capture to temp file for local processing within this script
-"${CMD[@]}" > "$tmpfile" 2>&1 || true
-
-# If we have no output in the temp file, note it but continue
-if [ ! -s "$tmpfile" ]; then
-  echo "WARNING: Command execution produced no visible output in temp file."
-  echo "no_output=true" >> "$GITHUB_OUTPUT"
-else
+# Save the output to GitHub outputs for other steps to use
+if [ -s "$tmpfile" ]; then
+  echo "command_output<<EOF" >> "$GITHUB_OUTPUT"
+  cat "$tmpfile" >> "$GITHUB_OUTPUT"
+  echo "EOF" >> "$GITHUB_OUTPUT"
   echo "no_output=false" >> "$GITHUB_OUTPUT"
+else
+  echo "no_output=true" >> "$GITHUB_OUTPUT"
 fi
-
-# Check if we have output, but don't re-run the command
-if [ ! -s "$tmpfile" ]; then
-  echo "Command execution produced no visible output."
-fi
-
-# Print exit code for debugging
-echo "DEBUG: Command exit code: $CMD_EXIT_CODE"
 
 # Check if the command failed
 if [ $CMD_EXIT_CODE -ne 0 ]; then
@@ -137,7 +123,6 @@ fi
 
 # Check if the output file is empty
 if [ ! -s "$tmpfile" ]; then
-  echo "WARNING: Command produced no output."
   echo "::warning::Command produced no output: ${CMD[*]}"
   # Ensure we have something in the file for processing
   echo "[NO_OUTPUT_PRODUCED_BY_COMMAND]" > "$tmpfile"
@@ -146,7 +131,7 @@ fi
 # Since we're combining stdout and stderr, copy to stderr file for compatibility
 cp "$tmpfile" "$tmpfile_err"
 
-# Print the captured output for debugging
+# Print the captured output
 echo "---- STDOUT ----"
 cat "$tmpfile"
 echo "---- STDERR ----"
@@ -154,11 +139,6 @@ cat "$tmpfile_err" >&2
 
 # Combine stdout and stderr for processing
 result=$(cat "$tmpfile" "$tmpfile_err")
-
-# Debug: print the raw output for troubleshooting
-echo "DEBUG: Raw command output:"
-echo "$result"
-echo "DEBUG: End of raw output"
 
 rm "$tmpfile" "$tmpfile_err"
 
@@ -205,16 +185,10 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       } >> "$GITHUB_OUTPUT"
     fi
   else
-    echo "DEBUG: Extracting plan ID from output..."
-
     # Check if we have the no-output marker
     if [[ "$result" == *"[NO_OUTPUT_PRODUCED_BY_COMMAND]"* ]]; then
-      echo "DEBUG: Command produced no output, skipping pattern matching"
       plan_id=""
     else
-      # Extract plan ID from regular deployment output - using multiple patterns
-      # Try to find the plan ID using various patterns in order of specificity
-
       # Extract plan ID using multiple patterns in order of specificity
       # 1. Try full URL pattern first
       plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
@@ -264,41 +238,8 @@ if [ "$INPUT_COMMAND" == "install" ]; then
         echo "plan_svg=$svg_base64" >> "$GITHUB_OUTPUT"
         echo "Successfully fetched SVG visualization"
       else
-        echo "WARNING: Failed to fetch SVG visualization"
-        echo "::warning::Failed to fetch SVG visualization: Plan ID may be valid but SVG endpoint returned an error"
-        
-        # Generate a synthetic one for CI purposes
-        echo "WARNING: No plan ID found in command output"
-        echo "::warning::No plan ID found in the command output"
-        
-        # Create a descriptive synthetic ID that includes the command type for better traceability
-        timestamp=$(date +%s)
-        synthetic_plan_id="synthetic-${INPUT_COMMAND}-$timestamp"
-        echo "Generating synthetic plan ID for CI purposes: $synthetic_plan_id"
-        echo "plan_id=$synthetic_plan_id" >> "$GITHUB_OUTPUT"
+        echo "::warning::Failed to fetch SVG visualization: Plan ID not found"
       fi
-      
-      # Handle plan-only mode differently
-      if [ "$INPUT_PLAN_ONLY" == "true" ]; then
-        # For plan-only mode, create a mock deployment plan JSON
-        echo "Creating mock deployment plan for CI..."
-        # Create a more descriptive mock plan with timestamp and command info
-        mock_plan="{\"mock_plan\": true, \"id\": \"$synthetic_plan_id\", \"command\": \"${INPUT_COMMAND}\", \"timestamp\": $timestamp, \"resources\": []}"
-        {
-          echo "deployment_plan<<EOF"
-          echo "$mock_plan"
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-      fi
-      
-      # Add diagnostic output to help troubleshoot why no plan ID was found
-      echo "STDOUT contents:"
-      cat "$tmpfile"
-      echo "STDERR contents:"
-      cat "$tmpfile_err"
-      
-      # Add a notice about using a synthetic plan ID
-      echo "::notice::Using synthetic plan ID ($synthetic_plan_id) because no real plan ID was found in the command output"
     fi
   fi
 fi
