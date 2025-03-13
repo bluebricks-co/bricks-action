@@ -132,11 +132,18 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       } >> "$GITHUB_OUTPUT"
     fi
   else
-    # Also extract plan ID from regular deployment output
-    plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*' | awk -F'/' '{print $NF}' || echo "")
-    if [ -n "$plan_id" ]; then
-      echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+    # Extract plan ID from regular deployment output
+    # Looking for URLs like: https://app.bluebricks.co/plans/e3bfa113-3d8b-4119-865d-d3486ad5276f
+    plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
+    
+    if [ -z "$plan_id" ]; then
+      # Try an alternative pattern in case the URL format changes
+      plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
     fi
+    
+    if [ -n "$plan_id" ]; then
+      echo "Plan ID found: $plan_id"
+      echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
       
       # Fetch the SVG visualization if we have a deployment ID and API URL
       if [ -n "$INPUT_API_URL" ]; then
@@ -148,8 +155,7 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       echo "Fetching SVG visualization for plan $plan_id from $api_url..."
       
       # Get the SVG from the API, handle errors gracefully
-      svg_response=$(curl -s "$api_url/v1/plans/$plan_id/svg" -H "Authorization: Bearer $BRICKS_API_KEY")
-      
+      svg_response=$(curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY")
       if [[ "$svg_response" == *"<svg"* ]]; then
         # Base64 encode the SVG for embedding in markdown
         svg_base64=$(echo "$svg_response" | base64)
@@ -157,8 +163,13 @@ if [ "$INPUT_COMMAND" == "install" ]; then
         echo "Successfully fetched SVG visualization"
       else
         echo "Failed to fetch SVG visualization: $svg_response"
-        echo "::warning::Failed to fetch SVG visualization"
+        echo "::warning::Failed to fetch SVG visualization: Plan ID may be valid but SVG endpoint returned an error"
       fi
+    else
+      echo "::warning::No plan ID found in the command output"
+      echo "Command output was:"
+      echo "$result"
+    fi
   fi
 fi
 
