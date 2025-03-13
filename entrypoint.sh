@@ -38,7 +38,6 @@ case "$INPUT_COMMAND" in
     [ -n "$INPUT_ENV" ] && CMD+=(--env "$INPUT_ENV")
     [ -n "$INPUT_SET_SLUG" ] && CMD+=(--set-slug "$INPUT_SET_SLUG")
     [ "$INPUT_PLAN_ONLY" == "true" ] && CMD+=(--plan-only)
-    [ -n "$INPUT_API_URL" ] && CMD+=(--api-url "$INPUT_API_URL")
     ;;
   publish|bp)
     if [ -z "$INPUT_SRC" ]; then
