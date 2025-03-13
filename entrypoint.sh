@@ -100,14 +100,25 @@ echo "DEBUG: Running command and capturing output"
 # Run the command and capture output using a reliable approach
 echo "Running command: ${CMD[*]}"
 
-# Use a single, reliable approach to capture command output
-# First, ensure the temp file exists and is empty
-> "$tmpfile"
+# Use GitHub Actions outputs to capture command output directly
+# This approach is more reliable in GitHub Actions environments
 
-# Execute command and capture output in a way that works in all environments
-# This approach uses a simple pipe to tee which captures output while still showing it in the logs
-{ "${CMD[@]}" 2>&1 | tee "$tmpfile"; }
+# Execute command and capture output to GitHub outputs
+echo "command_output<<EOF" >> "$GITHUB_OUTPUT"
+"${CMD[@]}" 2>&1 | tee -a "$GITHUB_OUTPUT"
 CMD_EXIT_CODE=${PIPESTATUS[0]}
+echo "EOF" >> "$GITHUB_OUTPUT"
+
+# Also capture to temp file for local processing within this script
+"${CMD[@]}" > "$tmpfile" 2>&1 || true
+
+# If we have no output in the temp file, note it but continue
+if [ ! -s "$tmpfile" ]; then
+  echo "WARNING: Command execution produced no visible output in temp file."
+  echo "no_output=true" >> "$GITHUB_OUTPUT"
+else
+  echo "no_output=false" >> "$GITHUB_OUTPUT"
+fi
 
 # Check if we have output, but don't re-run the command
 if [ ! -s "$tmpfile" ]; then
