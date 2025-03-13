@@ -122,6 +122,9 @@ runs:
         /bin/bash -c "$(curl -fsSL https://brickscli.s3.eu-west-1.amazonaws.com/releases/latest/install.sh)"
         mkdir -p $HOME/.bricks
         echo "token: Bearer ${{ inputs.api-key }}" > $HOME/.bricks/credentials.yaml
+        echo "userid: api_key" >> $HOME/.bricks/credentials.yaml
+        cat "${{ inputs.config-file }}" > $HOME/.bricks/config.yaml
+        bricks version
         
     - name: Set up Bricks configuration
       shell: bash
