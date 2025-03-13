@@ -91,21 +91,12 @@ echo "Running command with arguments: ${CMD[*]}"
 # Print the exact command being executed for better troubleshooting
 echo "DEBUG: Executing exact command: ${CMD[*]}"
 
-# Use a simple and reliable approach to capture command output
-# This works across platforms and doesn't rely on OS-specific features
-echo "DEBUG: Using direct command output capture"
+# Simple approach: run the command and capture output directly
+echo "DEBUG: Running command and capturing output"
 
-# Create a temporary file for stderr
-tmpstderr="${tmpfile}.stderr"
-
-# Run the command and capture stdout and stderr separately
-# This approach ensures we capture all output even if the command fails
-set +e  # Don't exit on error
-"${CMD[@]}" > "$tmpfile" 2> "$tmpstderr"
+# Run the command and capture output to the temporary file
+"${CMD[@]}" > "$tmpfile" 2>&1
 CMD_EXIT_CODE=$?
-
-# Combine stderr and stdout for processing
-cat "$tmpstderr" >> "$tmpfile"
 
 # Check if the command failed
 if [ $CMD_EXIT_CODE -ne 0 ]; then
