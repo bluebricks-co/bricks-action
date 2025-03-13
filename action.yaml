@@ -125,26 +125,6 @@ runs:
         echo "userid: api_key" >> $HOME/.bricks/credentials.yaml
         cat "${{ inputs.config-file }}" > $HOME/.bricks/config.yaml
         bricks version
-        
-    - name: Set up Bricks configuration
-      shell: bash
-      run: |
-        # Create a basic configuration file if it doesn't exist
-        if [ ! -f "$HOME/.bricks/config.yaml" ]; then
-          echo "api-url: ${{ inputs.api-url }}"
-          echo "log-level: info"
-        fi > "$HOME/.bricks/config.yaml"
-        
-        # Create credentials file
-        echo "default:
-          api-key: $BRICKS_API_KEY
-        " > "$HOME/.bricks/credentials.yaml"
-        
-        # Make sure the credentials are not world-readable
-        chmod 600 "$HOME/.bricks/credentials.yaml"
-      env:
-        BRICKS_API_KEY: ${{ env.BRICKS_API_KEY }}
-        INPUT_API_URL: ${{ inputs.api-url }}
 
     - name: Run Bricks command
       id: bricks-command
