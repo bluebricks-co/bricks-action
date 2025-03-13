@@ -4,12 +4,14 @@ set -e
 # Validate credentials
 if [ ! -f "$HOME/.bricks/credentials.yaml" ]; then
   echo "Error: Bricks credentials file not found"
+  echo "::error::Bricks credentials file not found"
   exit 1
 fi
 
 # Validate required input
 if [ -z "$INPUT_COMMAND" ]; then
   echo "Error: command input is required"
+  echo "::error::Command input is required"
   exit 1
 fi
 
@@ -79,7 +81,11 @@ echo "Executing: ${CMD[*]}"
 echo "----------------------------------------"
 # Capture the output of the bricks command and print it to stdout.
 tmpfile=$(mktemp)
-"${CMD[@]}" 2>&1 | tee "$tmpfile"
+"${CMD[@]}" 2>&1 | tee "$tmpfile" || { 
+  echo "::error::Command execution failed: ${CMD[*]}"
+  echo "error=\"Command execution failed: ${CMD[*]}\"" >> "$GITHUB_OUTPUT"
+  exit 1
+}
 result=$(cat "$tmpfile")
 rm "$tmpfile"
 
@@ -113,14 +119,15 @@ if [ "$INPUT_COMMAND" == "install" ]; then
   # Extract the deployment plan (for install command with --plan-only)
   if [ "$INPUT_PLAN_ONLY" == "true" ]; then
     # Extract deployment plan JSON from the output
-    # First, look for the entire JSON block between lines containing the plan JSON
-    deployment_plan=$(echo "$result" | grep -o '{"plan":[^}]*}}' || \
-                      echo "$result" | grep -o '{"plan":".*"}' || \
-                      echo "")
+    # Use a more robust method to extract JSON that properly handles nested objects and escape sequences
+    deployment_plan=$(echo "$result" | sed -n '/{/,/}/p' | tr -d '\n' | grep -o '{.*}' || echo "")
     if [ -n "$deployment_plan" ]; then
+      # Properly format the JSON for GitHub Output
+      # Escape potential problematic characters
+      escaped_plan=$(echo "$deployment_plan" | jq -c . 2>/dev/null || echo "{}")
       {
         echo "deployment_plan<<EOF"
-        echo "$deployment_plan"
+        echo "$escaped_plan"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
     fi
@@ -150,6 +157,7 @@ if [ "$INPUT_COMMAND" == "install" ]; then
         echo "Successfully fetched SVG visualization"
       else
         echo "Failed to fetch SVG visualization: $svg_response"
+        echo "::warning::Failed to fetch SVG visualization"
       fi
   fi
 fi
@@ -158,3 +166,6 @@ fi
 # For this example, we assume there's no error; otherwise, adjust accordingly.
 error_message=""
 echo "error=$error_message" >> "$GITHUB_OUTPUT"
+
+# Exit with success code
+exit 0
