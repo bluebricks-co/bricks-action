@@ -133,7 +133,7 @@ if [ "$INPUT_COMMAND" == "install" ]; then
     fi
   else
     # Also extract plan ID from regular deployment output
-    plan_id=$(echo "$result" | grep -o 'https://app.bricks-dev.com/plans/[0-9a-f-]*' | awk -F'/' '{print $NF}' || echo "")
+    plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*' | awk -F'/' '{print $NF}' || echo "")
     if [ -n "$plan_id" ]; then
       echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
     fi

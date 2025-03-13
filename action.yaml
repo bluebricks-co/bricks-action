@@ -41,7 +41,7 @@ inputs:
   api-url:
     description: 'Bricks API URL for communication'
     required: false
-    default: 'https://api.bluebricks.dev'
+    default: 'https://api.bluebricks.co'
   props:
     description: 'JSON string of properties'
     required: false
