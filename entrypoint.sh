@@ -81,13 +81,29 @@ echo "Executing: ${CMD[*]}"
 echo "----------------------------------------"
 # Capture the output of the bricks command and print it to stdout.
 tmpfile=$(mktemp)
-"${CMD[@]}" 2>&1 | tee "$tmpfile" || { 
+tmpfile_err=$(mktemp)
+
+# Capture both stdout and stderr separately
+"${CMD[@]}" > "$tmpfile" 2> "$tmpfile_err" || { 
+  cat "$tmpfile" "$tmpfile_err"
   echo "::error::Command execution failed: ${CMD[*]}"
   echo "error=\"Command execution failed: ${CMD[*]}\"" >> "$GITHUB_OUTPUT"
   exit 1
 }
-result=$(cat "$tmpfile")
-rm "$tmpfile"
+
+# Print the captured output for debugging
+cat "$tmpfile"
+cat "$tmpfile_err" >&2
+
+# Combine stdout and stderr for processing
+result=$(cat "$tmpfile" "$tmpfile_err")
+
+# Debug: print the raw output for troubleshooting
+echo "DEBUG: Raw command output:"
+echo "$result"
+echo "DEBUG: End of raw output"
+
+rm "$tmpfile" "$tmpfile_err"
 
 # Determine if changes occurred (this example uses a simple grep on "Updated Blueprints:")
 if echo "$result" | grep -q "Updated Blueprints:"; then
@@ -132,13 +148,35 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       } >> "$GITHUB_OUTPUT"
     fi
   else
-    # Extract plan ID from regular deployment output
-    # Looking for URLs like: https://app.bluebricks.co/plans/e3bfa113-3d8b-4119-865d-d3486ad5276f
+    echo "DEBUG: Extracting plan ID from output..."
+
+    # Extract plan ID from regular deployment output - using multiple patterns
+    # Debug: print potential matches for plan IDs
+    echo "DEBUG: Looking for URL patterns..."
+    echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No direct URL matches found"
+    echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No partial URL matches found"
+    echo "$result" | grep -o 'installation log at.*' || echo "No 'installation log at' matches found"
+
+    # First try exact URL pattern
     plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
     
+    # If that fails, try more generic patterns
     if [ -z "$plan_id" ]; then
-      # Try an alternative pattern in case the URL format changes
+      echo "DEBUG: First pattern failed, trying alternatives..."
+      # Try partial URL pattern 
       plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
+    fi
+
+    # If that fails, try to extract from 'installation log at' text
+    if [ -z "$plan_id" ]; then
+      echo "DEBUG: Second pattern failed, trying installation log pattern..."
+      plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
+    fi
+
+    # Last resort: direct UUID pattern match anywhere in output
+    if [ -z "$plan_id" ]; then
+      echo "DEBUG: All URL patterns failed, looking for raw UUID pattern..."
+      plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
     fi
     
     if [ -n "$plan_id" ]; then
