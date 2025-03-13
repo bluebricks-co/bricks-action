@@ -94,9 +94,28 @@ echo "DEBUG: Executing exact command: ${CMD[*]}"
 # Simple approach: run the command and capture output directly
 echo "DEBUG: Running command and capturing output"
 
-# Run the command and capture output to the temporary file
-"${CMD[@]}" > "$tmpfile" 2>&1
-CMD_EXIT_CODE=$?
+# Ensure we're in the right context for command execution
+[ -n "$INPUT_FILE" ] && [ ! -f "$INPUT_FILE" ] && echo "Warning: Input file not found: $INPUT_FILE" >&2
+
+# Run the command and capture output using a reliable approach
+echo "Running command: ${CMD[*]}"
+
+# Use a single, reliable approach to capture command output
+# First, ensure the temp file exists and is empty
+> "$tmpfile"
+
+# Execute command and capture output in a way that works in all environments
+# This approach uses a simple pipe to tee which captures output while still showing it in the logs
+{ "${CMD[@]}" 2>&1 | tee "$tmpfile"; }
+CMD_EXIT_CODE=${PIPESTATUS[0]}
+
+# Check if we have output, but don't re-run the command
+if [ ! -s "$tmpfile" ]; then
+  echo "Command execution produced no visible output."
+fi
+
+# Print exit code for debugging
+echo "DEBUG: Command exit code: $CMD_EXIT_CODE"
 
 # Check if the command failed
 if [ $CMD_EXIT_CODE -ne 0 ]; then
@@ -107,9 +126,9 @@ fi
 
 # Check if the output file is empty
 if [ ! -s "$tmpfile" ]; then
-  echo "WARNING: Command produced no output. This is unusual and may indicate a problem."
+  echo "WARNING: Command produced no output."
   echo "::warning::Command produced no output: ${CMD[*]}"
-  # Write a marker to the file so we know it was intentionally empty
+  # Ensure we have something in the file for processing
   echo "[NO_OUTPUT_PRODUCED_BY_COMMAND]" > "$tmpfile"
 fi
 
@@ -183,31 +202,24 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       plan_id=""
     else
       # Extract plan ID from regular deployment output - using multiple patterns
-      echo "DEBUG: Looking for URL patterns..."
-      # Show the patterns we're looking for and their results for better debugging
-      echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No direct URL matches found"
-      echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No partial URL matches found"
-      echo "$result" | grep -o 'installation log at.*' || echo "No 'installation log at' matches found"
+      # Try to find the plan ID using various patterns in order of specificity
 
-      # First try exact URL pattern
+      # Extract plan ID using multiple patterns in order of specificity
+      # 1. Try full URL pattern first
       plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
       
-      # If that fails, try more generic patterns
+      # 2. If not found, try partial URL pattern
       if [ -z "$plan_id" ]; then
-        echo "DEBUG: First pattern failed, trying alternatives..."
-        # Try partial URL pattern 
         plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
       fi
 
-      # If that fails, try to extract from 'installation log at' text
+      # 3. If still not found, try installation log pattern
       if [ -z "$plan_id" ]; then
-        echo "DEBUG: Second pattern failed, trying installation log pattern..."
         plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
       fi
 
-      # Last resort: direct UUID pattern match anywhere in output
+      # 4. Last resort: direct UUID pattern match anywhere in output
       if [ -z "$plan_id" ]; then
-        echo "DEBUG: All URL patterns failed, looking for raw UUID pattern..."
         plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
       fi
     fi
@@ -227,6 +239,12 @@ if [ "$INPUT_COMMAND" == "install" ]; then
       echo "Fetching SVG visualization for plan $plan_id from $api_url..."
       # Get the SVG from the API, handle errors gracefully
       svg_response=$(curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY")
+    else
+      # No plan ID found - log a warning
+      echo "::warning::No plan ID found in command output."
+      
+      # Set empty plan ID in GitHub output
+      echo "plan_id=" >> "$GITHUB_OUTPUT"
       
       if [[ "$svg_response" == *"<svg"* ]]; then
         # Base64 encode the SVG for embedding in markdown
