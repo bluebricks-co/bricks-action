@@ -88,6 +88,9 @@ echo "Running command with arguments: ${CMD[*]}"
 
 # Run command with detailed output to help with debugging
 
+# Print the exact command being executed for better troubleshooting
+echo "DEBUG: Executing exact command: ${CMD[*]}"
+
 # Run the command directly and capture both stdout and stderr
 # This allows interactive behavior while still capturing all output
 "${CMD[@]}" 2>&1 | tee "$tmpfile" || {
@@ -95,6 +98,14 @@ echo "Running command with arguments: ${CMD[*]}"
   echo "error=\"Command execution failed: ${CMD[*]}\"" >> "$GITHUB_OUTPUT"
   exit 1
 }
+
+# Check if the output file is empty
+if [ ! -s "$tmpfile" ]; then
+  echo "WARNING: Command produced no output. This is unusual and may indicate a problem."
+  echo "::warning::Command produced no output: ${CMD[*]}"
+  # Write a marker to the file so we know it was intentionally empty
+  echo "[NO_OUTPUT_PRODUCED_BY_COMMAND]" > "$tmpfile"
+fi
 
 # Since we're combining stdout and stderr, copy to stderr file for compatibility
 cp "$tmpfile" "$tmpfile_err"
@@ -160,32 +171,39 @@ if [ "$INPUT_COMMAND" == "install" ]; then
   else
     echo "DEBUG: Extracting plan ID from output..."
 
-    # Extract plan ID from regular deployment output - using multiple patterns
-    echo "DEBUG: Looking for URL patterns..."
-    echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No direct URL matches found"
-    echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No partial URL matches found"
-    echo "$result" | grep -o 'installation log at.*' || echo "No 'installation log at' matches found"
+    # Check if we have the no-output marker
+    if [[ "$result" == *"[NO_OUTPUT_PRODUCED_BY_COMMAND]"* ]]; then
+      echo "DEBUG: Command produced no output, skipping pattern matching"
+      plan_id=""
+    else
+      # Extract plan ID from regular deployment output - using multiple patterns
+      echo "DEBUG: Looking for URL patterns..."
+      # Show the patterns we're looking for and their results for better debugging
+      echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No direct URL matches found"
+      echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' || echo "No partial URL matches found"
+      echo "$result" | grep -o 'installation log at.*' || echo "No 'installation log at' matches found"
 
-    # First try exact URL pattern
-    plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
-    
-    # If that fails, try more generic patterns
-    if [ -z "$plan_id" ]; then
-      echo "DEBUG: First pattern failed, trying alternatives..."
-      # Try partial URL pattern 
-      plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
-    fi
+      # First try exact URL pattern
+      plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
+      
+      # If that fails, try more generic patterns
+      if [ -z "$plan_id" ]; then
+        echo "DEBUG: First pattern failed, trying alternatives..."
+        # Try partial URL pattern 
+        plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
+      fi
 
-    # If that fails, try to extract from 'installation log at' text
-    if [ -z "$plan_id" ]; then
-      echo "DEBUG: Second pattern failed, trying installation log pattern..."
-      plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
-    fi
+      # If that fails, try to extract from 'installation log at' text
+      if [ -z "$plan_id" ]; then
+        echo "DEBUG: Second pattern failed, trying installation log pattern..."
+        plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
+      fi
 
-    # Last resort: direct UUID pattern match anywhere in output
-    if [ -z "$plan_id" ]; then
-      echo "DEBUG: All URL patterns failed, looking for raw UUID pattern..."
-      plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+      # Last resort: direct UUID pattern match anywhere in output
+      if [ -z "$plan_id" ]; then
+        echo "DEBUG: All URL patterns failed, looking for raw UUID pattern..."
+        plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+      fi
     fi
     
     # Set API URL regardless of whether we found a plan ID
@@ -210,24 +228,26 @@ if [ "$INPUT_COMMAND" == "install" ]; then
         echo "plan_svg=$svg_base64" >> "$GITHUB_OUTPUT"
         echo "Successfully fetched SVG visualization"
       else
-        echo "WARNING: Failed to fetch SVG visualization: $svg_response"
+        echo "WARNING: Failed to fetch SVG visualization"
         echo "::warning::Failed to fetch SVG visualization: Plan ID may be valid but SVG endpoint returned an error"
       fi
     else
       # No plan ID found - generate a synthetic one for CI purposes
       echo "WARNING: No plan ID found in command output"
       echo "::warning::No plan ID found in the command output"
-      echo "Generating synthetic plan ID for CI purposes..."
       
-      synthetic_plan_id="synthetic-$(date +%s)"
+      # Create a descriptive synthetic ID that includes the command type for better traceability
+      timestamp=$(date +%s)
+      synthetic_plan_id="synthetic-${INPUT_COMMAND}-$timestamp"
+      echo "Generating synthetic plan ID for CI purposes: $synthetic_plan_id"
       echo "plan_id=$synthetic_plan_id" >> "$GITHUB_OUTPUT"
-      echo "Using synthetic plan ID: $synthetic_plan_id"
       
       # Handle plan-only mode differently
       if [ "$INPUT_PLAN_ONLY" == "true" ]; then
         # For plan-only mode, create a mock deployment plan JSON
         echo "Creating mock deployment plan for CI..."
-        mock_plan="{\"mock_plan\": true, \"id\": \"ci-$(date +%s)\", \"resources\": []}"
+        # Create a more descriptive mock plan with timestamp and command info
+        mock_plan="{\"mock_plan\": true, \"id\": \"$synthetic_plan_id\", \"command\": \"${INPUT_COMMAND}\", \"timestamp\": $timestamp, \"resources\": []}"
         {
           echo "deployment_plan<<EOF"
           echo "$mock_plan"
@@ -235,10 +255,14 @@ if [ "$INPUT_COMMAND" == "install" ]; then
         } >> "$GITHUB_OUTPUT"
       fi
       
+      # Add diagnostic output to help troubleshoot why no plan ID was found
       echo "STDOUT contents:"
       cat "$tmpfile"
       echo "STDERR contents:"
       cat "$tmpfile_err"
+      
+      # Add a notice about using a synthetic plan ID
+      echo "::notice::Using synthetic plan ID ($synthetic_plan_id) because no real plan ID was found in the command output"
     fi
   fi
 fi
