@@ -7,74 +7,84 @@ branding:
 
 inputs:
   command:
-    description: 'Bricks CLI command to run (e.g. publish, bp)'
+    description: 'Primary Bricks command (bprint, bp, clouds, env, install, publish, updateci, etc)'
     required: true
   subcommand:
-    description: 'Subcommand for the Bricks CLI command (e.g. for "bricks bp list", the subcommand would be "list")'
+    description: 'Subcommand for the primary command (publish, bump, prepare, etc)'
     required: false
   package:
-    description: 'Package name or path for operations like install'
+    description: 'Package name for operations that require it'
     required: false
   version:
-    description: 'Version specification for the package'
+    description: 'Version specification for version-related commands'
     required: false
   file:
-    description: 'Path to the YAML manifest file for install command'
+    description: 'Path to a YAML manifest file for the install command (used with -f flag)'
     required: false
   env:
-    description: 'Environment slug for deployment'
+    description: 'Environment slug as the deployment target (used with install command)'
     required: false
   plan-only:
-    description: 'Create a deployment plan without executing it'
+    description: 'Will create a deployment plan only without executing the deployment (used with install command)'
     required: false
     default: 'false'
   set-slug:
-    description: 'Custom deployment slug'
+    description: 'Set deployment slug for install command'
     required: false
+  config-file:
+    description: 'Path to Bricks config file'
+    required: false
+    default: '$HOME/.bricks/config.yaml'
+  api-key:
+    description: 'Bricks API key for authentication'
+    required: true
   api-url:
-    description: 'URL for the Bricks API'
+    description: 'Bricks API URL for communication'
     required: false
     default: 'https://api.bluebricks.dev'
   props:
-    description: 'Properties to pass to the package in JSON format'
+    description: 'JSON string of properties'
     required: false
   props-file:
-    description: 'Path to a file containing properties to pass to the package'
+    description: 'Path to JSON properties file for install command'
     required: false
   bump_type:
     description: 'Type of version bump to apply (major, minor, patch)'
     required: false
   src:
-    description: 'Source path for publishing'
+    description: 'Source path for blueprint operations'
     required: false
+    default: '.'
   artifacts-folder:
-    description: 'Path to the folder containing artifacts for updateci command'
+    description: 'Path to artifacts folder'
     required: false
-    default: './artifacts'
+    default: 'bluebricks/packages'
   blueprints-folder:
-    description: 'Path to the folder containing blueprints for updateci command'
+    description: 'Path to blueprints folder'
     required: false
-    default: './blueprints'
+    default: 'bluebricks/blueprints'
   artifact-bump:
-    description: 'Version bump type for artifacts in updateci command'
+    description: 'Version bump type for packages'
     required: false
     default: 'patch'
   blueprint-bump:
-    description: 'Version bump type for blueprints in updateci command'
+    description: 'Version bump type for blueprints'
     required: false
     default: 'patch'
   output:
-    description: 'Output format for updateci command'
+    description: 'Output format (ascii or json)'
     required: false
-    default: 'text'
+    default: 'ascii'
   base:
-    description: 'Base Git reference for updateci command comparison'
+    description: 'Base branch for git diff'
     required: false
+    default: 'origin/main'
   head:
     description: 'Head Git reference for updateci command comparison'
     required: false
+    default: 'HEAD'
   flags:
-    description: 'Additional flags to pass to the Bricks CLI command (e.g., --dry)'
+    description: 'Additional flags to be added to any command (e.g., --dry)'
     required: false
 
 outputs:
@@ -110,15 +120,15 @@ runs:
       shell: bash
       run: |
         /bin/bash -c "$(curl -fsSL https://brickscli.s3.eu-west-1.amazonaws.com/releases/latest/install.sh)"
-    
-    - name: Set up Bricks credentials
+        mkdir -p $HOME/.bricks
+        echo "token: Bearer ${{ inputs.api-key }}" > $HOME/.bricks/credentials.yaml
+        
+    - name: Set up Bricks configuration
       shell: bash
       run: |
-        mkdir -p $HOME/.bricks
-        
         # Create a basic configuration file if it doesn't exist
         if [ ! -f "$HOME/.bricks/config.yaml" ]; then
-          echo "api-url: ${INPUT_API_URL:-https://api.bluebricks.dev}"
+          echo "api-url: ${{ inputs.api-url }}"
           echo "log-level: info"
         fi > "$HOME/.bricks/config.yaml"
         
