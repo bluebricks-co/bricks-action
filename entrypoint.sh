@@ -91,9 +91,10 @@ echo "Running command with arguments: ${CMD[*]}"
 # Print the exact command being executed for better troubleshooting
 echo "DEBUG: Executing exact command: ${CMD[*]}"
 
-# Run the command directly and capture both stdout and stderr
-# This allows interactive behavior while still capturing all output
-"${CMD[@]}" 2>&1 | tee "$tmpfile" || {
+# Use the script command for more reliable output capture, especially in CI environments
+# This approach captures terminal output more effectively than simple redirection
+echo "DEBUG: Using script command for reliable output capture"
+script -q "$tmpfile" bash -c "${CMD[*]}" || {
   echo "::error::Command execution failed: ${CMD[*]}"
   echo "error=\"Command execution failed: ${CMD[*]}\"" >> "$GITHUB_OUTPUT"
   exit 1
