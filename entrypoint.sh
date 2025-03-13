@@ -32,6 +32,14 @@ case "$INPUT_COMMAND" in
     CMD+=(--base "$INPUT_BASE")
     CMD+=(--head "$INPUT_HEAD")
     ;;
+  install)
+    # Handle install command specific flags
+    [ -n "$INPUT_FILE" ] && CMD+=(--file "$INPUT_FILE")
+    [ -n "$INPUT_ENV" ] && CMD+=(--env "$INPUT_ENV")
+    [ -n "$INPUT_SET_SLUG" ] && CMD+=(--set-slug "$INPUT_SET_SLUG")
+    [ "$INPUT_PLAN_ONLY" == "true" ] && CMD+=(--plan-only)
+    [ -n "$INPUT_API_URL" ] && CMD+=(--api-url "$INPUT_API_URL")
+    ;;
   publish|bp)
     if [ -z "$INPUT_SRC" ]; then
       echo "Error: src is required for publish command"
@@ -100,6 +108,61 @@ dependency_graph=$(echo "$result" | sed -n '/Dependency Graph:/,$p' | sed '1d')
   echo "$dependency_graph"
   echo "EOF"
 } >> "$GITHUB_OUTPUT"
+
+# Handle specific outputs for the install command
+if [ "$INPUT_COMMAND" == "install" ]; then
+  # Extract the deployment plan (for install command with --plan-only)
+  if [ "$INPUT_PLAN_ONLY" == "true" ]; then
+    # Extract deployment plan JSON from the output
+    deployment_plan=$(echo "$result" | grep -o '{"plan":".*"}' || echo "")
+    if [ -n "$deployment_plan" ]; then
+      {
+        echo "deployment_plan<<EOF"
+        echo "$deployment_plan"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+    fi
+
+    # Extract plan ID from the output
+    plan_id=$(echo "$result" | grep -o 'https://app.bricks-dev.com/plans/[0-9a-f-]*' | awk -F'/' '{print $NF}' || echo "")
+    if [ -n "$plan_id" ]; then
+      echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+    fi
+  else
+    # Extract deployment ID from the output
+    deployment_id=$(echo "$result" | grep -o 'https://app.bricks-dev.com/deployments/[0-9a-f-]*' | awk -F'/' '{print $NF}' || echo "")
+    if [ -n "$deployment_id" ]; then
+      echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+      
+      # Also extract plan ID from regular deployment output
+      plan_id=$(echo "$result" | grep -o 'https://app.bricks-dev.com/plans/[0-9a-f-]*' | awk -F'/' '{print $NF}' || echo "")
+      if [ -n "$plan_id" ]; then
+        echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+      fi
+      
+      # Fetch the SVG visualization if we have a deployment ID and API URL
+      if [ -n "$INPUT_API_URL" ]; then
+        api_url="$INPUT_API_URL"
+      else
+        api_url="https://api.bluebricks.dev"
+      fi
+      
+      echo "Fetching SVG visualization for deployment $deployment_id from $api_url..."
+      
+      # Get the SVG from the API, handle errors gracefully
+      svg_response=$(curl -s "$api_url/v1/deployments/$deployment_id/svg" -H "Authorization: Bearer $BRICKS_API_KEY")
+      
+      if [[ "$svg_response" == *"<svg"* ]]; then
+        # Base64 encode the SVG for embedding in markdown
+        svg_base64=$(echo "$svg_response" | base64)
+        echo "deployment_svg=$svg_base64" >> "$GITHUB_OUTPUT"
+        echo "Successfully fetched SVG visualization"
+      else
+        echo "Failed to fetch SVG visualization: $svg_response"
+      fi
+    fi
+  fi
+fi
 
 # Handle error output if applicable.
 # For this example, we assume there's no error; otherwise, adjust accordingly.

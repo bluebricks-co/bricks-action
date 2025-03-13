@@ -7,67 +7,74 @@ branding:
 
 inputs:
   command:
-    description: 'Primary Bricks command (bprint, bp, clouds, env, install, publish, updateci, etc)'
+    description: 'Bricks CLI command to run (e.g. publish, bp)'
     required: true
   subcommand:
-    description: 'Subcommand for the primary command (publish, bump, prepare, etc)'
+    description: 'Subcommand for the Bricks CLI command (e.g. for "bricks bp list", the subcommand would be "list")'
     required: false
   package:
-    description: 'Package name for operations that require it'
+    description: 'Package name or path for operations like install'
     required: false
   version:
-    description: 'Version specification for version-related commands'
+    description: 'Version specification for the package'
     required: false
+  file:
+    description: 'Path to the YAML manifest file for install command'
+    required: false
+  env:
+    description: 'Environment slug for deployment'
+    required: false
+  plan-only:
+    description: 'Create a deployment plan without executing it'
+    required: false
+    default: 'false'
+  set-slug:
+    description: 'Custom deployment slug'
+    required: false
+  api-url:
+    description: 'URL for the Bricks API'
+    required: false
+    default: 'https://api.bluebricks.dev'
   props:
-    description: 'JSON string of properties'
+    description: 'Properties to pass to the package in JSON format'
     required: false
   props-file:
-    description: 'Path to JSON properties file for install command'
+    description: 'Path to a file containing properties to pass to the package'
     required: false
-  config-file:
-    description: 'Path to Bricks config file'
-    required: false
-    default: '$HOME/.bricks/config.yaml'
-  api-key:
-    description: 'Bricks API key for authentication'
-    required: true
-  src:
-    description: 'Source path for blueprint operations'
-    required: false
-    default: '.'
   bump_type:
-    description: 'Type of version bump (major, minor, patch)'
+    description: 'Type of version bump to apply (major, minor, patch)'
+    required: false
+  src:
+    description: 'Source path for publishing'
     required: false
   artifacts-folder:
-    description: 'Path to artifacts folder'
+    description: 'Path to the folder containing artifacts for updateci command'
     required: false
-    default: 'bluebricks/packages'
+    default: './artifacts'
   blueprints-folder:
-    description: 'Path to blueprints folder'
+    description: 'Path to the folder containing blueprints for updateci command'
     required: false
-    default: 'bluebricks/blueprints'
+    default: './blueprints'
   artifact-bump:
-    description: 'Version bump type for packages'
+    description: 'Version bump type for artifacts in updateci command'
     required: false
     default: 'patch'
   blueprint-bump:
-    description: 'Version bump type for blueprints'
+    description: 'Version bump type for blueprints in updateci command'
     required: false
     default: 'patch'
   output:
-    description: 'Output format (ascii or json)'
+    description: 'Output format for updateci command'
     required: false
-    default: 'ascii'
+    default: 'text'
   base:
-    description: 'Base branch for git diff'
+    description: 'Base Git reference for updateci command comparison'
     required: false
-    default: 'origin/main'
   head:
-    description: 'Head for git diff'
+    description: 'Head Git reference for updateci command comparison'
     required: false
-    default: 'HEAD'
   flags:
-    description: 'Additional flags to be added to any command (e.g., --dry)'
+    description: 'Additional flags to pass to the Bricks CLI command (e.g., --dry)'
     required: false
 
 outputs:
@@ -80,6 +87,18 @@ outputs:
   dependency_graph:
     description: 'Visual representation of the dependency relationships between updated components'
     value: ${{ steps.bricks-command.outputs.dependency_graph }}
+  deployment_plan:
+    description: 'Detailed deployment plan for install command'
+    value: ${{ steps.bricks-command.outputs.deployment_plan }}
+  plan_id:
+    description: 'Unique identifier for the generated deployment plan'
+    value: ${{ steps.bricks-command.outputs.plan_id }}
+  deployment_id:
+    description: 'Identifier for the deployment'
+    value: ${{ steps.bricks-command.outputs.deployment_id }}
+  deployment_svg:
+    description: 'Base64 encoded SVG visualization of the deployment'
+    value: ${{ steps.bricks-command.outputs.deployment_svg }}
   error:
     description: 'Error message if the command failed'
     value: ${{ steps.bricks-command.outputs.error }}
@@ -91,33 +110,46 @@ runs:
       shell: bash
       run: |
         /bin/bash -c "$(curl -fsSL https://brickscli.s3.eu-west-1.amazonaws.com/releases/latest/install.sh)"
+    
+    - name: Set up Bricks credentials
+      shell: bash
+      run: |
         mkdir -p $HOME/.bricks
-        echo "token: Bearer ${{ inputs.api-key }}" > $HOME/.bricks/credentials.yaml
-        echo "userid: api_key" >> $HOME/.bricks/credentials.yaml
-        cat "${{ inputs.config-file }}" > $HOME/.bricks/config.yaml
-        bricks version
+        
+        # Create a basic configuration file if it doesn't exist
+        if [ ! -f "$HOME/.bricks/config.yaml" ]; then
+          echo "api-url: ${INPUT_API_URL:-https://api.bluebricks.dev}"
+          echo "log-level: info"
+        fi > "$HOME/.bricks/config.yaml"
+        
+        # Create credentials file
+        echo "default:
+          api-key: $BRICKS_API_KEY
+        " > "$HOME/.bricks/credentials.yaml"
+        
+        # Make sure the credentials are not world-readable
+        chmod 600 "$HOME/.bricks/credentials.yaml"
+      env:
+        BRICKS_API_KEY: ${{ env.BRICKS_API_KEY }}
+        INPUT_API_URL: ${{ inputs.api-url }}
 
-    - name: Configure Git user
-      shell: bash
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-    - name: Configure Git Remote for Push
-      shell: bash
-      run: |
-        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-        git remote -v
-
-    - name: Run Bricks Command
+    - name: Run Bricks command
       id: bricks-command
       shell: bash
-      run: ${{ github.action_path }}/entrypoint.sh
+      run: |
+        set -eu
+        
+        # Execute the entrypoint script
+        ${{ github.action_path }}/entrypoint.sh
       env:
         INPUT_COMMAND: ${{ inputs.command }}
         INPUT_SUBCOMMAND: ${{ inputs.subcommand }}
         INPUT_PACKAGE: ${{ inputs.package }}
         INPUT_VERSION: ${{ inputs.version }}
+        INPUT_FILE: ${{ inputs.file }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_PLAN_ONLY: ${{ inputs['plan-only'] }}
+        INPUT_SET_SLUG: ${{ inputs['set-slug'] }}
         INPUT_PROPS: ${{ inputs.props }}
         INPUT_PROPS_FILE: ${{ inputs['props-file'] }}
         INPUT_BUMP_TYPE: ${{ inputs.bump_type }}
@@ -130,10 +162,12 @@ runs:
         INPUT_BASE: ${{ inputs.base }}
         INPUT_HEAD: ${{ inputs.head }}
         INPUT_FLAGS: ${{ inputs.flags }}
+        INPUT_API_URL: ${{ inputs.api-url }}
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
 
-    - name: Comment on PR
-      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && (steps.bricks-command.outputs.has_changes == 'true' || steps.bricks-command.outputs.error != '')
+    # Comment on PR for update commands (not install)
+    - name: Comment on PR for update commands
+      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && steps.bricks-command.outputs.has_changes == 'true' && inputs.command != 'install'
       uses: actions/github-script@v7
       with:
         script: |
@@ -152,6 +186,8 @@ runs:
 
           // Format the update report from the summary text
           const formatUpdateReport = (summary) => {
+            if (!summary) return '';
+            
             const lines = summary.split('\n');
             let formattedSummary = '';
             lines.forEach(line => {
@@ -182,50 +218,173 @@ runs:
             return formattedSummary;
           };
 
-          // Retrieve summary and dependency graph from environment
+          // Retrieve data from environment
           const summaryContent = process.env.CHANGES_SUMMARY || '';
+          const dependencyGraph = process.env.DEPENDENCY_GRAPH || '';
+          
           const formattedContent = formatUpdateReport(summaryContent);
 
           // Determine if this run is a dry run based on INPUT_FLAGS
           const isDryRun = process.env.INPUT_FLAGS && process.env.INPUT_FLAGS.includes('--dry');
 
           // Build the comment body with the Bluebricks image at the top
-          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/public" width="200">
+          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/public" width="200">\n\n`;
 
-          ### 🧱 Bricks Update Summary ${isDryRun ? '(PREVIEW)' : ''}
-
-          ${formattedContent}
-          `;
+          // Add update summary section if available
+          if (formattedContent) {
+            body += `### 🧱 Bricks Update Summary ${isDryRun ? '(PREVIEW)' : ''}\n\n${formattedContent}\n`;
+          }
 
           if (isDryRun) {
             // For dry-run mode, add a preview note and dependency graph
-            body += `
-          > **NOTE:** This is a preview of the changes. No packages have been published yet.
-
-          <details>
-          <summary>📊 Dependency Graph</summary>
-
-          \`\`\`md
-          ${process.env.DEPENDENCY_GRAPH}
-          \`\`\`
-          </details>
-          `;
+            body += `\n> **NOTE:** This is a preview of the changes. No packages have been published yet.\n\n<details>\n<summary>📊 Dependency Graph</summary>\n\n\`\`\`md\n${dependencyGraph}\n\`\`\`\n</details>\n`;
           }
 
           // Append the final signature
-          body += `
+          body += `\n\n<sub>Updated with 💙 by Bluebricks</sub>`;
 
-          <sub>Updated with 💙 by Bluebricks</sub>`;
-
-                // Post the comment on the PR
-                await github.rest.issues.createComment({
-                  issue_number: context.issue.number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: body
-                });
+          // Post the comment on the PR
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
       env:
         CHANGES_SUMMARY: ${{ steps.bricks-command.outputs.changes_summary }}
         DEPENDENCY_GRAPH: ${{ steps.bricks-command.outputs.dependency_graph }}
-        ERROR_MESSAGE: ${{ steps.bricks-command.outputs.error }}
         INPUT_FLAGS: ${{ inputs.flags }}
+
+    # Comment on PR for install command
+    - name: Comment on PR for install command
+      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && inputs.command == 'install' && (steps.bricks-command.outputs.deployment_plan != '' || steps.bricks-command.outputs.deployment_id != '' || steps.bricks-command.outputs.error != '')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Format the deployment plan
+          const formatDeploymentPlan = (plan) => {
+            if (!plan) return '';
+            
+            try {
+              const planData = JSON.parse(plan);
+              
+              let formattedPlan = '### 🚀 Deployment Plan\n\n';
+              
+              if (planData.environment) {
+                formattedPlan += `**Target Environment:** ${planData.environment}\n\n`;
+              }
+              
+              if (planData.summary) {
+                formattedPlan += '#### Summary\n\n';
+                formattedPlan += '| Resource Type | Create | Update | Delete |\n';
+                formattedPlan += '|--------------|--------|--------|--------|\n';
+                
+                Object.entries(planData.summary).forEach(([resource, counts]) => {
+                  formattedPlan += `| ${resource} | ${counts.create || 0} | ${counts.update || 0} | ${counts.delete || 0} |\n`;
+                });
+                
+                formattedPlan += '\n';
+              }
+              
+              if (planData.changes && planData.changes.length > 0) {
+                formattedPlan += '#### Detailed Changes\n\n';
+                formattedPlan += '<details>\n<summary>Click to expand</summary>\n\n';
+                
+                planData.changes.forEach(change => {
+                  formattedPlan += `##### ${change.resource_type}: ${change.resource_name}\n\n`;
+                  formattedPlan += `**Action:** ${change.action}\n\n`;
+                  
+                  if (change.details) {
+                    formattedPlan += '```json\n';
+                    formattedPlan += JSON.stringify(change.details, null, 2);
+                    formattedPlan += '\n```\n\n';
+                  }
+                });
+                
+                formattedPlan += '</details>\n\n';
+              }
+              
+              if (planData.warnings && planData.warnings.length > 0) {
+                formattedPlan += '#### ⚠️ Warnings\n\n';
+                planData.warnings.forEach(warning => {
+                  formattedPlan += `- ${warning}\n`;
+                });
+                formattedPlan += '\n';
+              }
+              
+              if (planData.plan_id) {
+                formattedPlan += `**Plan ID:** \`${planData.plan_id}\`\n\n`;
+                formattedPlan += `[View detailed plan in Bricks Dashboard](https://app.bluebricks.dev/plans/${planData.plan_id})\n\n`;
+              }
+              
+              return formattedPlan;
+            } catch (e) {
+              return `### 🚀 Deployment Plan\n\n${plan}\n\n`;
+            }
+          };
+
+          // Retrieve data from environment
+          const deploymentPlan = process.env.DEPLOYMENT_PLAN || '';
+          const deploymentSvg = process.env.DEPLOYMENT_SVG || '';
+          const deploymentId = process.env.DEPLOYMENT_ID || '';
+          const planId = process.env.PLAN_ID || '';
+          const errorMessage = process.env.ERROR_MESSAGE || '';
+          
+          const formattedPlan = formatDeploymentPlan(deploymentPlan);
+
+          // Build the comment body with the Bluebricks image at the top
+          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/public" width="200">\n\n`;
+
+          // Add a header for the install command with plan URL if available
+          if (planId) {
+            body += `### 🧱 Bricks Deployment [View Plan](https://app.bluebricks.dev/plans/${planId})\n\n`;
+          } else {
+            body += `### 🧱 Bricks Deployment\n\n`;
+          }
+          
+          // Add deployment plan section if available
+          if (formattedPlan) {
+            body += formattedPlan;
+          }
+          
+          // Add SVG visualization if available
+          if (deploymentSvg) {
+            body += `### 📊 Deployment Visualization\n\n<details>\n<summary>Click to expand deployment diagram</summary>\n\n<div align="center">\n\n![Deployment Visualization](data:image/svg+xml;base64,${deploymentSvg})\n\n</div>\n</details>\n\n`;
+          }
+          
+          // Add deployment and plan links if available
+          if (deploymentId || planId) {
+            body += `### 🔗 Bricks Dashboard Links\n\n`;
+            
+            if (planId) {
+              body += `- [View Deployment Plan](https://app.bluebricks.dev/plans/${planId})\n`;
+            }
+            
+            if (deploymentId) {
+              body += `- [View Deployment Details](https://app.bluebricks.dev/deployments/${deploymentId})\n`;
+            }
+            
+            body += `\n`;
+          }
+
+          // Add error message if available
+          if (errorMessage) {
+            body += `### ❌ Error\n\n\`\`\`\n${errorMessage}\n\`\`\`\n\n`;
+          }
+
+          // Append the final signature
+          body += `\n\n<sub>Updated with 💙 by Bluebricks</sub>`;
+
+          // Post the comment on the PR
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
+      env:
+        DEPLOYMENT_PLAN: ${{ steps.bricks-command.outputs.deployment_plan }}
+        DEPLOYMENT_ID: ${{ steps.bricks-command.outputs.deployment_id }}
+        DEPLOYMENT_SVG: ${{ steps.bricks-command.outputs.deployment_svg }}
+        PLAN_ID: ${{ steps.bricks-command.outputs.plan_id }}
+        ERROR_MESSAGE: ${{ steps.bricks-command.outputs.error }}
