@@ -149,25 +149,70 @@ case "$INPUT_COMMAND" in
     else
       # Extract plan ID and URL using a simple function to avoid repetition
       extract_plan_info() {
-        # Extract the full URL if present
-        plan_url=$(echo "$result" | grep -o 'https://app[^/]*.*/plans/[0-9a-f-]*' | head -1 || echo "")
+        # Debug: Print a more comprehensive view of the result to see the actual output format
+        echo "DEBUG: Command output snippet (first 1000 chars):"
+        echo "$result" | head -c 1000
+        
+        # Also print any lines containing 'plan', 'uuid', or 'installation log' for better debugging
+        echo "
+DEBUG: Lines containing key patterns:"
+        echo "$result" | grep -i -E 'plan|uuid|installation log|deploy' | head -10 || echo "No matching lines found"
+        
+        # Extract the full URL if present - try multiple patterns
+        # First try the standard URL pattern for both app.bricks-dev.com and app.bluebricks.co
+        plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
+        
+        # If that fails, try looking for any URL with 'installation log at'
+        if [ -z "$plan_url" ]; then
+          installation_log_url=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | sed 's/installation log at //' | head -1 || echo "")
+          if [ -n "$installation_log_url" ]; then
+            plan_url="$installation_log_url"
+            echo "Found plan URL from 'installation log at' pattern: $plan_url"
+          fi
+        fi
         
         # Extract just the UUID using multiple patterns in order of specificity
         # 1. From the URL if we found one
         if [ -n "$plan_url" ]; then
           plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
+          echo "Found plan ID from URL: $plan_id"
         else
-          # 2. Try partial URL pattern
-          plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
+          # 2. Try multiple installation log patterns with increasingly flexible matching
+          # First try the exact pattern with 'installation log at'
+          plan_id=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
           
-          # 3. If still not found, try installation log pattern
-          if [ -z "$plan_id" ]; then
-            plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
-          fi
-          
-          # 4. Last resort: direct UUID pattern match anywhere in output
+          # If that fails, try looking for any UUID pattern in the output
           if [ -z "$plan_id" ]; then
             plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+            if [ -n "$plan_id" ]; then
+              echo "Found plan ID by searching for UUID pattern: $plan_id"
+            fi
+          fi
+          
+          if [ -n "$plan_id" ]; then
+            echo "Found plan ID from installation log: $plan_id"
+          else
+            # 3. Try partial URL pattern with more flexible matching
+            plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
+            
+            if [ -n "$plan_id" ]; then
+              echo "Found plan ID from partial URL: $plan_id"
+            else
+              # 4. Try looking for UUID in specific contexts
+              plan_id=$(echo "$result" | grep -i -E '(plan|deployment|uuid)[^a-zA-Z0-9]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+              
+              if [ -n "$plan_id" ]; then
+                echo "Found plan ID from contextual UUID pattern: $plan_id"
+              else
+                # 5. Last resort: direct UUID pattern match anywhere in output
+                plan_id=$(echo "$result" | grep -E '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
+              
+                if [ -n "$plan_id" ]; then
+                  # Extract just the UUID from any surrounding text
+                  plan_id=$(echo "$plan_id" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}')
+                  echo "Found plan ID from direct UUID match: $plan_id"
+                fi
+            fi
           fi
           
           # If we found a UUID but not a URL, construct a default URL
