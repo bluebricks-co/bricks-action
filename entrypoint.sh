@@ -39,6 +39,21 @@ case "$INPUT_COMMAND" in
     fi
     CMD+=(--src "$INPUT_SRC")
     ;;
+  install)
+    # Handle install command arguments
+    if [ -n "$INPUT_PACKAGE" ]; then
+      # Install a specific package
+      CMD+=("$INPUT_PACKAGE")
+    elif [ -n "$INPUT_FILE" ]; then
+      # Install from a manifest file
+      CMD+=(-f "$INPUT_FILE")
+    fi
+    
+    # Add common install options if specified
+    [ -n "$INPUT_ENV" ] && CMD+=(--env "$INPUT_ENV")
+    [ "$INPUT_PLAN_ONLY" == "true" ] && CMD+=(--plan-only)
+    [ -n "$INPUT_SET_SLUG" ] && CMD+=(--set-slug "$INPUT_SET_SLUG")
+    ;;
   bprint)
     if [ "$INPUT_SUBCOMMAND" == "bump" ]; then
       case "$INPUT_BUMP_TYPE" in
