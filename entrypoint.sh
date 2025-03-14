@@ -191,7 +191,7 @@ case "$INPUT_COMMAND" in
           echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
           {
             echo "plan_summary<<EOF"
-            echo "Deployment plan created: $plan_url"
+            echo "Deployment plan created: $plan_url" >> "$GITHUB_STEP_SUMMARY"
             echo "Plan ID: $plan_id"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -217,6 +217,7 @@ case "$INPUT_COMMAND" in
         if [[ "$svg_response" == *"<svg"* ]]; then
           svg_base64=$(echo "$svg_response" | base64)
           echo "plan_svg=$svg_base64" >> "$GITHUB_OUTPUT"
+          echo "![Deployment SVG](data:image/svg+xml;base64,$svg_base64)" >> "$GITHUB_STEP_SUMMARY"
         else
           echo "::warning::Failed to fetch SVG visualization: API returned invalid response"
         fi
