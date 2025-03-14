@@ -148,16 +148,7 @@ case "$INPUT_COMMAND" in
       fi
     else
       # Extract plan ID and URL using a simple function to avoid repetition
-      extract_plan_info() {
-        # Debug: Print a more comprehensive view of the result to see the actual output format
-        echo "DEBUG: Command output snippet (first 1000 chars):"
-        echo "$result" | head -c 1000
-        
-        # Also print any lines containing 'plan', 'uuid', or 'installation log' for better debugging
-        echo "
-DEBUG: Lines containing key patterns:"
-        echo "$result" | grep -i -E 'plan|uuid|installation log|deploy' | head -10 || echo "No matching lines found"
-        
+      function extract_plan_info() {
         # Extract the full URL if present - try multiple patterns
         # First try the standard URL pattern for both app.bricks-dev.com and app.bluebricks.co
         plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
@@ -167,7 +158,6 @@ DEBUG: Lines containing key patterns:"
           installation_log_url=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | sed 's/installation log at //' | head -1 || echo "")
           if [ -n "$installation_log_url" ]; then
             plan_url="$installation_log_url"
-            echo "Found plan URL from 'installation log at' pattern: $plan_url"
           fi
         fi
         
@@ -175,7 +165,6 @@ DEBUG: Lines containing key patterns:"
         # 1. From the URL if we found one
         if [ -n "$plan_url" ]; then
           plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
-          echo "Found plan ID from URL: $plan_id"
         else
           # 2. Try multiple installation log patterns with increasingly flexible matching
           # First try the exact pattern with 'installation log at'
@@ -184,95 +173,54 @@ DEBUG: Lines containing key patterns:"
           # If that fails, try looking for any UUID pattern in the output
           if [ -z "$plan_id" ]; then
             plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
-            if [ -n "$plan_id" ]; then
-              echo "Found plan ID by searching for UUID pattern: $plan_id"
-            fi
-          fi
-          
-          if [ -n "$plan_id" ]; then
-            echo "Found plan ID from installation log: $plan_id"
-          else
-            # 3. Try partial URL pattern with more flexible matching
-            plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
             
             if [ -n "$plan_id" ]; then
-              echo "Found plan ID from partial URL: $plan_id"
-            else
-              # 4. Try looking for UUID in specific contexts
-              plan_id=$(echo "$result" | grep -i -E '(plan|deployment|uuid)[^a-zA-Z0-9]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
-              
-              if [ -n "$plan_id" ]; then
-                echo "Found plan ID from contextual UUID pattern: $plan_id"
+              # If we found a UUID but not a URL, construct a default URL
+              if [ -n "$INPUT_API_URL" ]; then
+                # Convert api.domain to app.domain
+                base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
+                plan_url="$base_url/plans/$plan_id"
               else
-                # 5. Last resort: direct UUID pattern match anywhere in output
-                plan_id=$(echo "$result" | grep -E '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
-              
-                if [ -n "$plan_id" ]; then
-                  # Extract just the UUID from any surrounding text
-                  plan_id=$(echo "$plan_id" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}')
-                  echo "Found plan ID from direct UUID match: $plan_id"
-                fi
+                plan_url="https://app.bluebricks.co/plans/$plan_id"
+              fi
             fi
           fi
-          
-          # If we found a UUID but not a URL, construct a default URL
-          if [ -n "$plan_id" ] && [ -z "$plan_url" ]; then
-            # Determine the base URL from API URL or use default
-            if [ -n "$INPUT_API_URL" ]; then
-              # Convert api.domain to app.domain
-              base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
-              plan_url="$base_url/plans/$plan_id"
-            else
-              plan_url="https://app.bluebricks.co/plans/$plan_id"
-            fi
-          fi
+        fi
+        
+        if [ -n "$plan_id" ]; then
+          echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+          echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "plan_summary<<EOF"
+            echo "Deployment plan created: $plan_url"
+            echo "Plan ID: $plan_id"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        else
+          echo "plan_id=" >> "$GITHUB_OUTPUT"
+          echo "plan_url=" >> "$GITHUB_OUTPUT"
         fi
       }
       
       # Call the function to extract plan info
       extract_plan_info
       
-      # Set API URL for further operations
-      if [ -n "$INPUT_API_URL" ]; then
-        api_url="$INPUT_API_URL"
-      else
-        api_url="https://api.bluebricks.co"
-      fi
-      
+      # Fetch SVG visualization for plan
       if [ -n "$plan_id" ]; then
-        # We found a valid plan ID
-        echo "Plan ID found: $plan_id"
-        echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+        if [ -n "$INPUT_API_URL" ]; then
+          api_url="$INPUT_API_URL"
+        else
+          api_url="https://api.bluebricks.co"
+        fi
         
-        # Set the plan URL as output
-        echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
-        
-        # Create a summary for the plan
-        {
-          echo "plan_summary<<EOF"
-          echo "Deployment plan created: $plan_url"
-          echo "Plan ID: $plan_id"
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-        
-        echo "Fetching SVG visualization for plan $plan_id from $api_url..."
-        # Get the SVG from the API, handle errors gracefully
         svg_response=$(curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY")
         
-        # Check if we got a valid SVG response
         if [[ "$svg_response" == *"<svg"* ]]; then
-          # Base64 encode the SVG for embedding in markdown
           svg_base64=$(echo "$svg_response" | base64)
           echo "plan_svg=$svg_base64" >> "$GITHUB_OUTPUT"
-          echo "Successfully fetched SVG visualization"
         else
           echo "::warning::Failed to fetch SVG visualization: API returned invalid response"
         fi
-      else
-        # No plan ID found - log a warning
-        echo "::warning::No plan ID found in command output."
-        echo "plan_id=" >> "$GITHUB_OUTPUT"
-        echo "plan_url=" >> "$GITHUB_OUTPUT"
       fi
     fi
     ;;
