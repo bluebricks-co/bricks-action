@@ -137,6 +137,53 @@ case "$INPUT_COMMAND" in
     # Handle install command specific outputs
     function extract_plan_info() {
       echo "Starting plan info extraction"
+      
+      # Extract the full URL if present - try multiple patterns
+      plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
+      echo "Extracted plan URL: $plan_url"
+        
+        # If that fails, try looking for any URL with 'installation log at'
+        if [ -z "$plan_url" ]; then
+          installation_log_url=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | sed 's/installation log at //' | head -1 || echo "")
+          if [ -n "$installation_log_url" ]; then
+            plan_url="$installation_log_url"
+          fi
+        fi
+        echo "Final plan URL: $plan_url"
+      
+        # Extract just the UUID using multiple patterns in order of specificity
+        if [ -n "$plan_url" ]; then
+          plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
+        else
+          plan_id=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
+          if [ -z "$plan_id" ]; then
+            plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+            if [ -n "$plan_id" ]; then
+              if [ -n "$INPUT_API_URL" ]; then
+                base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
+                plan_url="$base_url/plans/$plan_id"
+              else
+                plan_url="https://app.bluebricks.co/plans/$plan_id"
+              fi
+            fi
+          fi
+        fi
+        echo "Extracted plan ID: $plan_id"
+      
+        if [ -n "$plan_id" ]; then
+          echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+          echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "plan_summary<<EOF"
+            echo "Deployment plan created: $plan_url" >> "$GITHUB_STEP_SUMMARY"
+            echo "Plan ID: $plan_id"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        else
+          echo "plan_id=" >> "$GITHUB_OUTPUT"
+          echo "plan_url=" >> "$GITHUB_OUTPUT"
+        fi
+      } plan info extraction"
 
       # Extract the full URL if present - try multiple patterns
       plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
