@@ -92,6 +92,9 @@ CMD_EXIT_CODE=${PIPESTATUS[0]}
 result=$(cat "$tmpfile")
 rm "$tmpfile"
 
+# Log the entire command output for debugging
+echo "Command output: $result"
+
 # Set the exit code as an output
 echo "exit_code=$CMD_EXIT_CODE" >> "$GITHUB_OUTPUT"
 
@@ -149,9 +152,11 @@ case "$INPUT_COMMAND" in
     else
       # Extract plan ID and URL using a simple function to avoid repetition
       function extract_plan_info() {
+        echo "Starting plan info extraction"
+
         # Extract the full URL if present - try multiple patterns
-        # First try the standard URL pattern for both app.bricks-dev.com and app.bluebricks.co
         plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
+        echo "Extracted plan URL: $plan_url"
         
         # If that fails, try looking for any URL with 'installation log at'
         if [ -z "$plan_url" ]; then
@@ -160,24 +165,17 @@ case "$INPUT_COMMAND" in
             plan_url="$installation_log_url"
           fi
         fi
-        
+        echo "Final plan URL: $plan_url"
+
         # Extract just the UUID using multiple patterns in order of specificity
-        # 1. From the URL if we found one
         if [ -n "$plan_url" ]; then
           plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
         else
-          # 2. Try multiple installation log patterns with increasingly flexible matching
-          # First try the exact pattern with 'installation log at'
           plan_id=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
-          
-          # If that fails, try looking for any UUID pattern in the output
           if [ -z "$plan_id" ]; then
             plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
-            
             if [ -n "$plan_id" ]; then
-              # If we found a UUID but not a URL, construct a default URL
               if [ -n "$INPUT_API_URL" ]; then
-                # Convert api.domain to app.domain
                 base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
                 plan_url="$base_url/plans/$plan_id"
               else
@@ -186,7 +184,8 @@ case "$INPUT_COMMAND" in
             fi
           fi
         fi
-        
+        echo "Extracted plan ID: $plan_id"
+
         if [ -n "$plan_id" ]; then
           echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
           echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
