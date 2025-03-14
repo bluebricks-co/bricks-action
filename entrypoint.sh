@@ -147,26 +147,47 @@ case "$INPUT_COMMAND" in
         echo "deployment_plan={}" >> "$GITHUB_OUTPUT"
       fi
     else
-      # Extract plan ID using multiple patterns in order of specificity
-      # 1. Try full URL pattern first
-      plan_id=$(echo "$result" | grep -o 'https://app.bluebricks.co/plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' || echo "")
+      # Extract plan ID and URL using a simple function to avoid repetition
+      extract_plan_info() {
+        # Extract the full URL if present
+        plan_url=$(echo "$result" | grep -o 'https://app[^/]*.*/plans/[0-9a-f-]*' | head -1 || echo "")
+        
+        # Extract just the UUID using multiple patterns in order of specificity
+        # 1. From the URL if we found one
+        if [ -n "$plan_url" ]; then
+          plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
+        else
+          # 2. Try partial URL pattern
+          plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
+          
+          # 3. If still not found, try installation log pattern
+          if [ -z "$plan_id" ]; then
+            plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
+          fi
+          
+          # 4. Last resort: direct UUID pattern match anywhere in output
+          if [ -z "$plan_id" ]; then
+            plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+          fi
+          
+          # If we found a UUID but not a URL, construct a default URL
+          if [ -n "$plan_id" ] && [ -z "$plan_url" ]; then
+            # Determine the base URL from API URL or use default
+            if [ -n "$INPUT_API_URL" ]; then
+              # Convert api.domain to app.domain
+              base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
+              plan_url="$base_url/plans/$plan_id"
+            else
+              plan_url="https://app.bluebricks.co/plans/$plan_id"
+            fi
+          fi
+        fi
+      }
       
-      # 2. If not found, try partial URL pattern
-      if [ -z "$plan_id" ]; then
-        plan_id=$(echo "$result" | grep -o 'plans/[0-9a-f-]*[-]*[0-9a-f]*' | awk -F'/' '{print $NF}' | head -1 || echo "")
-      fi
-
-      # 3. If still not found, try installation log pattern
-      if [ -z "$plan_id" ]; then
-        plan_id=$(echo "$result" | grep -o 'installation log at.*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
-      fi
-
-      # 4. Last resort: direct UUID pattern match anywhere in output
-      if [ -z "$plan_id" ]; then
-        plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
-      fi
+      # Call the function to extract plan info
+      extract_plan_info
       
-      # Set API URL regardless of whether we found a plan ID
+      # Set API URL for further operations
       if [ -n "$INPUT_API_URL" ]; then
         api_url="$INPUT_API_URL"
       else
@@ -177,6 +198,17 @@ case "$INPUT_COMMAND" in
         # We found a valid plan ID
         echo "Plan ID found: $plan_id"
         echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+        
+        # Set the plan URL as output
+        echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
+        
+        # Create a summary for the plan
+        {
+          echo "plan_summary<<EOF"
+          echo "Deployment plan created: $plan_url"
+          echo "Plan ID: $plan_id"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
         
         echo "Fetching SVG visualization for plan $plan_id from $api_url..."
         # Get the SVG from the API, handle errors gracefully
@@ -195,6 +227,7 @@ case "$INPUT_COMMAND" in
         # No plan ID found - log a warning
         echo "::warning::No plan ID found in command output."
         echo "plan_id=" >> "$GITHUB_OUTPUT"
+        echo "plan_url=" >> "$GITHUB_OUTPUT"
       fi
     fi
     ;;
