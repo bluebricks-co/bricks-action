@@ -183,7 +183,7 @@ case "$INPUT_COMMAND" in
           echo "plan_id=" >> "$GITHUB_OUTPUT"
           echo "plan_url=" >> "$GITHUB_OUTPUT"
         fi
-      }
+    }
 
       # Extract the full URL if present - try multiple patterns
       plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
@@ -216,20 +216,6 @@ case "$INPUT_COMMAND" in
         fi
       fi
       echo "Extracted plan ID: $plan_id"
-
-      if [ -n "$plan_id" ]; then
-        echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
-        echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
-        {
-          echo "plan_summary<<EOF"
-          echo "Deployment plan created: $plan_url" >> "$GITHUB_STEP_SUMMARY"
-          echo "Plan ID: $plan_id"
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-      else
-        echo "plan_id=" >> "$GITHUB_OUTPUT"
-        echo "plan_url=" >> "$GITHUB_OUTPUT"
-      fi
     
     # Call the function to extract plan info
     extract_plan_info
