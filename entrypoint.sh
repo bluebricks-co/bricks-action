@@ -87,7 +87,7 @@ echo "Executing: ${CMD[*]}"
 echo "----------------------------------------"
 # Capture the output of the bricks command and print it to stdout.
 tmpfile=$(mktemp)
-script -q -c "${CMD[@]}" 2>&1 | tee "$tmpfile"
+script -q -c "${CMD[*]}" 2>&1 | tee "$tmpfile"
 CMD_EXIT_CODE=${PIPESTATUS[0]}
 result=$(cat "$tmpfile")
 rm "$tmpfile"
