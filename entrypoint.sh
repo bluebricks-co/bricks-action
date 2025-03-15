@@ -230,7 +230,6 @@ case "$INPUT_COMMAND" in
         echo "plan_id=" >> "$GITHUB_OUTPUT"
         echo "plan_url=" >> "$GITHUB_OUTPUT"
       fi
-    }
     
     # Call the function to extract plan info
     extract_plan_info
