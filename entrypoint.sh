@@ -234,12 +234,11 @@ case "$INPUT_COMMAND" in
         api_url="https://api.bluebricks.co"
       fi
       
-      svg_response=$(curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY")
-      
-      if [[ "$svg_response" == *"<svg"* ]]; then
-        svg_base64=$(echo "$svg_response" | base64)
-        echo "plan_svg=$svg_base64" >> "$GITHUB_OUTPUT"
-        echo "![Deployment SVG](data:image/svg+xml;base64,$svg_base64)" >> "$GITHUB_STEP_SUMMARY"
+      curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY" -o "${plan_id}.png"
+
+      if [[ "$(file "${plan_id}.png")" == *"PNG image data"* ]]; then
+        mv "${plan_id}.png" "$GITHUB_WORKSPACE"
+        echo "![Deployment SVG](${plan_id}.png)" >> "$GITHUB_STEP_SUMMARY"
       else
         echo "::warning::Failed to fetch SVG visualization: API returned invalid response"
       fi
