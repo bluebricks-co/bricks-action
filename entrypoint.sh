@@ -227,6 +227,10 @@ case "$INPUT_COMMAND" in
     fi
 
     # Fetch SVG visualization for plan
+    if [ -n "$INPUT_API_KEY" ]; then
+      echo "::warning::api-key variable is not set, couldn't make request to API to get PNG visualization"
+    fi
+
     if [ -n "$plan_id" ]; then
       if [ -n "$INPUT_API_URL" ]; then
         api_url="$INPUT_API_URL"
@@ -234,7 +238,7 @@ case "$INPUT_COMMAND" in
         api_url="https://api.bluebricks.co"
       fi
       
-      curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $BRICKS_API_KEY" -o "${plan_id}.png"
+      curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $INPUT_API_KEY" -o "${plan_id}.png"
 
       if [[ "$(file "${plan_id}.png")" == *"PNG image data"* ]]; then
         mv "${plan_id}.png" "$GITHUB_WORKSPACE"
