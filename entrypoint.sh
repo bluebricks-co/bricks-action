@@ -239,7 +239,7 @@ case "$INPUT_COMMAND" in
       echo "Fetching SVG from API: ${api_url}/api/v1/deployment/${plan_id}/image"
       curl -H "Authorization: Bearer ${INPUT_API_KEY}" \
           -o "$svg_file" \
-          "${api_url}/api/v1/deployment/${plan_id}/image"
+          "${api_url}/api/v1/deployment/${plan_id}/image?format=svg"
 
       # Check if SVG was fetched successfully
       if [ -f "$svg_file" ]; then
