@@ -237,7 +237,7 @@ case "$INPUT_COMMAND" in
       curl -s "$api_url/api/v1/deployment/$plan_id/image" -H "Authorization: Bearer $INPUT_API_KEY" -o "${plan_id}.png"
 
       if [[ "$(file "${plan_id}.png")" == *"PNG image data"* ]]; then
-        echo "![Deployment PNG](${plan_id}.png)" >> "$GITHUB_STEP_SUMMARY"
+        echo "![Deployment PNG]($GITHUB_WORKSPACE/${plan_id}.png)" >> "$GITHUB_STEP_SUMMARY"
       else
         echo "PNG response: $(cat "${plan_id}.png")"
         echo "::warning::Failed to fetch PNG visualization: API returned invalid response: $(cat "${plan_id}.png")"
