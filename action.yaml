@@ -156,6 +156,7 @@ runs:
         INPUT_HEAD: ${{ inputs.head }}
         INPUT_FLAGS: ${{ inputs.flags }}
         INPUT_API_URL: ${{ inputs.api-url }}
+        INPUT_API_KEY: ${{ inputs.api-key }}
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
 
     # Comment on PR for update commands (not install)
