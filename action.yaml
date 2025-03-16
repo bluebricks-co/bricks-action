@@ -159,6 +159,28 @@ runs:
         INPUT_API_KEY: ${{ inputs.api-key }}
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
 
+    - name: Fetch Plan Metadata
+      id: fetch-plan-metadata
+      shell: bash
+      run: |
+        PLAN_ID=${{ steps.bricks-command.outputs.plan_id }}
+        API_URL=${{ inputs.api-url }}/api/v1/deployment/$PLAN_ID
+        RESPONSE=$(curl -H "Authorization: Bearer ${{ inputs.api-key }}" $API_URL)
+        echo "$RESPONSE" > plan_metadata.json
+        echo "::set-output name=plan_metadata::$RESPONSE"
+
+    - name: Handle SVG Path
+      id: handle-svg
+      shell: bash
+      run: |
+        SVG_FILE=$(find /home/runner/work/bricks-factory/bricks-factory -name "*.svg" | head -n 1)
+        if [ -f "$SVG_FILE" ]; then
+          SVG_PATH=$(cat "$SVG_FILE")
+          echo "::set-output name=svg_path::$SVG_PATH"
+        else
+          echo "::set-output name=svg_path::"
+        fi
+
     # Comment on PR for update commands (not install)
     - name: Comment on PR for update commands
       if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && steps.bricks-command.outputs.has_changes == 'true' && inputs.command != 'install'
