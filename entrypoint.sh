@@ -238,9 +238,10 @@ case "$INPUT_COMMAND" in
 
       if [[ "$(file "${plan_id}.png")" == *"PNG image data"* ]]; then
         mv "${plan_id}.png" "$GITHUB_WORKSPACE"
-        echo "![Deployment SVG](${plan_id}.png)" >> "$GITHUB_STEP_SUMMARY"
+        echo "![Deployment PNG](${plan_id}.png)" >> "$GITHUB_STEP_SUMMARY"
       else
-        echo "::warning::Failed to fetch SVG visualization: API returned invalid response"
+        echo "PNG response: $(cat "${plan_id}.png")"
+        echo "::warning::Failed to fetch PNG visualization: API returned invalid response"
       fi
     fi
     ;;
