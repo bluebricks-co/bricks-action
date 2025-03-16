@@ -226,22 +226,36 @@ case "$INPUT_COMMAND" in
       echo "::notice::Proceeding Plan Only."
     fi
 
-      
-    echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
-    echo "<details>" >> "$GITHUB_STEP_SUMMARY"
-    echo "<summary>Click to expand deployment diagram</summary>" >> "$GITHUB_STEP_SUMMARY"
-    echo "<div align=\"center\">" >> "$GITHUB_STEP_SUMMARY"
-    echo "$svg_content" >> "$GITHUB_STEP_SUMMARY"
-    <img src="2af90be4-e563-4a62-9c54-1c1f692f7aa1.png">
-    echo "</div>" >> "$GITHUB_STEP_SUMMARY"
-    echo "</details>" >> "$GITHUB_STEP_SUMMARY"
-
-    # Fetch SVG visualization for plan
+    # Fetch SVG visualization for deployment
     if [ -n "$plan_id" ]; then
       if [ -n "$INPUT_API_URL" ]; then
         api_url="$INPUT_API_URL"
       else
         api_url="https://api.bluebricks.co"
+      fi
+
+      # Fetch SVG from API using Bearer token (adjust endpoint if necessary)
+      svg_file="${GITHUB_WORKSPACE}/${plan_id}.svg"
+      echo "Fetching SVG from API: ${api_url}/api/v1/deployment/${plan_id}/image"
+      curl -H "Authorization: Bearer ${INPUT_API_KEY}" \
+          -o "$svg_file" \
+          "${api_url}/api/v1/deployment/${plan_id}/image"
+
+      # Check if SVG was fetched successfully
+      if [ -f "$svg_file" ]; then
+        echo "SVG fetched successfully: $svg_file"
+        svg_content=$(cat "$svg_file")
+
+        # Embed SVG inline in step summary
+        echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
+        echo "<details>" >> "$GITHUB_STEP_SUMMARY"
+        echo "<summary>Click to expand deployment diagram</summary>" >> "$GITHUB_STEP_SUMMARY"
+        echo "<div align=\"center\">" >> "$GITHUB_STEP_SUMMARY"
+        echo "$svg_content" >> "$GITHUB_STEP_SUMMARY"
+        echo "</div>" >> "$GITHUB_STEP_SUMMARY"
+        echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+      else
+        echo "::warning::Failed to fetch SVG from API for deployment ID: $plan_id"
       fi
     fi
     ;;
