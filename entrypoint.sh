@@ -226,12 +226,10 @@ case "$INPUT_COMMAND" in
       echo "::notice::Proceeding Plan Only."
     fi
 
-    # Embed SVG visualization from a temporary file
     temp_svg_file="${GITHUB_WORKSPACE}/43e12552-4a61-41cc-a9b3-f5ce8c18e8b5.svg"
-    
-    #TODO: Remove once done
+
     if [ -f "$temp_svg_file" ]; then
-      svg_content=$(cat "$temp_svg_file" | sed 's/$/\\n/g' | tr -d '\n')
+      svg_content=$(cat "$temp_svg_file")
       
       echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
       echo "<details>" >> "$GITHUB_STEP_SUMMARY"
