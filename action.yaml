@@ -167,7 +167,7 @@ runs:
         API_URL=${{ inputs.api-url }}/api/v1/deployment/$PLAN_ID
         RESPONSE=$(curl -H "Authorization: Bearer ${{ inputs.api-key }}" $API_URL)
         echo "$RESPONSE" > plan_metadata.json
-        echo "::set-output name=plan_metadata::$RESPONSE"
+        echo "plan_metadata=$RESPONSE" >> $GITHUB_ENV
 
     - name: Handle SVG Path
       id: handle-svg
@@ -176,9 +176,9 @@ runs:
         SVG_FILE=$(find /home/runner/work/bricks-factory/bricks-factory -name "*.svg" | head -n 1)
         if [ -f "$SVG_FILE" ]; then
           SVG_PATH=$(cat "$SVG_FILE")
-          echo "::set-output name=svg_path::$SVG_PATH"
+          echo "svg_path=$SVG_PATH" >> $GITHUB_ENV
         else
-          echo "::set-output name=svg_path::"
+          echo "svg_path=" >> $GITHUB_ENV
         fi
 
     # Comment on PR for update commands (not install)
