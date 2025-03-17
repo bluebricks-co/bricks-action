@@ -184,18 +184,6 @@ runs:
           rm "$TEMP_FILE"
         fi
 
-    - name: Handle SVG Path
-      id: handle-svg
-      shell: bash
-      run: |
-        SVG_FILE=$(find /home/runner/work/bricks-factory/bricks-factory -name "*.svg" | head -n 1)
-        if [ -f "$SVG_FILE" ]; then
-          SVG_PATH=$(cat "$SVG_FILE" | tr -d '\0')
-          echo "svg_path=$SVG_PATH" >> $GITHUB_ENV
-        else
-          echo "svg_path=" >> $GITHUB_ENV
-        fi
-
     # Comment on PR for update commands (not install)
     - name: Comment on PR for update commands
       if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && steps.bricks-command.outputs.has_changes == 'true' && inputs.command != 'install'
