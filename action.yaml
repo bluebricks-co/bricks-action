@@ -166,9 +166,23 @@ runs:
       run: |
         PLAN_ID=${{ steps.bricks-command.outputs.plan_id }}
         API_URL=${{ inputs.api-url }}/api/v1/deployment/$PLAN_ID
-        RESPONSE=$(curl -H "Authorization: Bearer ${{ inputs.api-key }}" $API_URL)
-        echo "$RESPONSE" | tr -d '\0' > plan_metadata.json
-        echo "plan_metadata=$(cat plan_metadata.json)" >> $GITHUB_ENV
+        
+        # Save to temp file first to validate response
+        TEMP_FILE=$(mktemp)
+        HTTP_CODE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${{ inputs.api-key }}" \
+          -o "$TEMP_FILE" "$API_URL")
+        
+        # Check for HTTP success and valid JSON
+        if [ "$HTTP_CODE" != "200" ] || ! jq empty "$TEMP_FILE" 2>/dev/null; then
+          echo "::warning::Failed to fetch valid plan metadata (HTTP $HTTP_CODE). Skipping metadata processing."
+          echo "plan_metadata={}" >> $GITHUB_ENV
+          rm "$TEMP_FILE"
+        else
+          # Clean and sanitize the response
+          cat "$TEMP_FILE" | tr -d '\0' > plan_metadata.json
+          echo "plan_metadata=$(cat plan_metadata.json)" >> $GITHUB_ENV
+          rm "$TEMP_FILE"
+        fi
 
     - name: Handle SVG Path
       id: handle-svg
