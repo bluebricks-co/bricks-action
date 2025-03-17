@@ -161,6 +161,7 @@ runs:
 
     - name: Fetch Plan Metadata
       id: fetch-plan-metadata
+      if: inputs.command == 'install' && steps.bricks-command.outputs.plan_id != ''
       shell: bash
       run: |
         PLAN_ID=${{ steps.bricks-command.outputs.plan_id }}
@@ -234,30 +235,11 @@ runs:
             return formattedSummary;
           };
 
-          // Format the resources diff
-          const formatResourcesDiff = (resources) => {
-            if (!resources) return '';
-            
-            let formattedResources = '### 🔄 Resources Diff\n\n';
-            Object.entries(resources).forEach(([resource, details]) => {
-              formattedResources += `#### ${resource}\n\n`;
-              formattedResources += '| Property | Action | State | Planned |\n';
-              formattedResources += '|----------|--------|-------|---------|\n';
-              Object.entries(details.properties).forEach(([property, propDetails]) => {
-                formattedResources += `| ${property} | ${propDetails.action} | ${propDetails.state} | ${propDetails.planned} |\n`;
-              });
-              formattedResources += '\n';
-            });
-            return formattedResources;
-          };
-
           // Retrieve data from environment
           const summaryContent = process.env.CHANGES_SUMMARY || '';
           const dependencyGraph = process.env.DEPENDENCY_GRAPH || '';
-          const planMetadata = JSON.parse(process.env.PLAN_METADATA || '{}');
           
           const formattedContent = formatUpdateReport(summaryContent);
-          const formattedResources = formatResourcesDiff(planMetadata.resources);
 
           // Determine if this run is a dry run based on INPUT_FLAGS
           const isDryRun = process.env.INPUT_FLAGS && process.env.INPUT_FLAGS.includes('--dry');
@@ -268,11 +250,6 @@ runs:
           // Add update summary section if available
           if (formattedContent) {
             body += `### 🧱 Bricks Update Summary ${isDryRun ? '(PREVIEW)' : ''}\n\n${formattedContent}\n`;
-          }
-
-          // Add resources diff section if available
-          if (formattedResources) {
-            body += formattedResources;
           }
 
           if (isDryRun) {
@@ -294,7 +271,6 @@ runs:
         CHANGES_SUMMARY: ${{ steps.bricks-command.outputs.changes_summary }}
         DEPENDENCY_GRAPH: ${{ steps.bricks-command.outputs.dependency_graph }}
         INPUT_FLAGS: ${{ inputs.flags }}
-        PLAN_METADATA: ${{ steps.fetch-plan-metadata.outputs.plan_metadata }}
 
     # Comment on PR for install command
     - name: Comment on PR for install command

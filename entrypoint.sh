@@ -13,6 +13,120 @@ if [ -z "$INPUT_COMMAND" ]; then
   exit 1
 fi
 
+# Set API URLs
+set_api_url() {
+  if [ -n "$INPUT_API_URL" ]; then
+    api_url="$INPUT_API_URL"
+    app_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
+  else
+    api_url="https://api.bluebricks.co"
+    app_url="https://app.bluebricks.co"
+  fi
+  export api_url
+  export app_url
+}
+
+# Initialize API URLs
+set_api_url
+
+# Extract plan information from command output
+extract_plan_info() {
+  echo "Starting plan info extraction"
+  
+  # Extract the full URL if present - try multiple patterns
+  plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
+  echo "Extracted plan URL: $plan_url"
+  
+  # If that fails, try looking for any URL with 'installation log at'
+  if [ -z "$plan_url" ]; then
+    installation_log_url=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | sed 's/installation log at //' | head -1 || echo "")
+    if [ -n "$installation_log_url" ]; then
+      plan_url="$installation_log_url"
+    fi
+  fi
+  echo "Final plan URL: $plan_url"
+
+  # Extract just the UUID using multiple patterns in order of specificity
+  if [ -n "$plan_url" ]; then
+    plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
+  else
+    plan_id=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
+    if [ -z "$plan_id" ]; then
+      plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
+      if [ -n "$plan_id" ]; then
+        plan_url="${app_url}/plans/$plan_id"
+      fi
+    fi
+  fi
+  echo "Extracted plan ID: $plan_id"
+
+  if [ -n "$plan_id" ]; then
+    echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+    echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
+    {
+      echo "plan_summary<<EOF"
+      echo "Deployment plan created: $plan_url" >> "$GITHUB_STEP_SUMMARY"
+      echo "Plan ID: $plan_id"
+      echo "EOF"
+    } >> "$GITHUB_OUTPUT"
+  else
+    echo "plan_id=" >> "$GITHUB_OUTPUT"
+    echo "plan_url=" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+# Handle command exit status
+handle_command_exit() {
+  local exit_code=$1
+  if [ $exit_code -ne 0 ]; then
+    error_message="Command execution failed with exit code $exit_code: ${CMD[*]}"
+    echo "::error::$error_message"
+    echo "error=\"$error_message\"" >> "$GITHUB_OUTPUT"
+  else
+    echo "error=" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+# Set has_changes output
+set_has_changes_output() {
+  if echo "$result" | grep -q "Updated Blueprints:"; then
+    echo "has_changes=true" >> "$GITHUB_OUTPUT"
+  else
+    echo "has_changes=false" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+# Fetch and process SVG
+fetch_and_process_svg() {
+  local plan_id=$1
+  
+  svg_file="${GITHUB_WORKSPACE}/${plan_id}.svg"
+  echo "Fetching SVG from API: ${api_url}/api/v1/deployment/${plan_id}/image"
+  curl -H "Authorization: Bearer ${INPUT_API_KEY}" \
+      -o "$svg_file" \
+      "${api_url}/api/v1/deployment/${plan_id}/image?format=svg"
+
+  # Check if SVG was fetched successfully
+  if [ -f "$svg_file" ]; then
+    echo "SVG fetched successfully: $svg_file"
+    svg_content=$(cat "$svg_file" | tr -d '\0')
+    svg_base64=$(cat "$svg_file" | base64 | tr -d '\n')
+    echo "deployment_svg=$svg_base64" >> "$GITHUB_OUTPUT"
+
+    # Embed SVG inline in step summary
+    echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
+    echo "<details>" >> "$GITHUB_STEP_SUMMARY"
+    echo "<summary>Click to expand deployment diagram</summary>" >> "$GITHUB_STEP_SUMMARY"
+    echo "<div align=\"center\">" >> "$GITHUB_STEP_SUMMARY"
+    echo "$svg_content" >> "$GITHUB_STEP_SUMMARY"
+    echo "</div>" >> "$GITHUB_STEP_SUMMARY"
+    echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+  else
+    echo "::warning::Failed to fetch SVG from API for deployment ID: $plan_id"
+    echo "deployment_svg=" >> "$GITHUB_OUTPUT"
+  fi
+}
+
 # Build the command as an array
 CMD=("bricks" "$INPUT_COMMAND")
 
@@ -98,21 +212,14 @@ echo "Command output: $result"
 # Set the exit code as an output
 echo "exit_code=$CMD_EXIT_CODE" >> "$GITHUB_OUTPUT"
 
-# Check if the command failed and handle error appropriately
-if [ $CMD_EXIT_CODE -ne 0 ]; then
-  echo "::error::Command execution failed with exit code $CMD_EXIT_CODE: ${CMD[*]}"
-  echo "error=\"Command execution failed with exit code $CMD_EXIT_CODE: ${CMD[*]}\"" >> "$GITHUB_OUTPUT"
-fi
+# Handle command exit status
+handle_command_exit "$CMD_EXIT_CODE"
 
 # Process command output based on command type
 case "$INPUT_COMMAND" in
   updateci)
-    # Determine if changes occurred
-    if echo "$result" | grep -q "Updated Blueprints:"; then
-      echo "has_changes=true" >> "$GITHUB_OUTPUT"
-    else
-      echo "has_changes=false" >> "$GITHUB_OUTPUT"
-    fi
+    # Set has_changes output
+    set_has_changes_output
     
     # Extract the changes summary.
     # This assumes the summary is between "Update Report:" and "Dependency Graph:"
@@ -134,147 +241,25 @@ case "$INPUT_COMMAND" in
     ;;
     
   install)
-    # Handle install command specific outputs
-    function extract_plan_info() {
-      echo "Starting plan info extraction"
-      
-      # Extract the full URL if present - try multiple patterns
-      plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
-      echo "Extracted plan URL: $plan_url"
-        
-        # If that fails, try looking for any URL with 'installation log at'
-        if [ -z "$plan_url" ]; then
-          installation_log_url=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | sed 's/installation log at //' | head -1 || echo "")
-          if [ -n "$installation_log_url" ]; then
-            plan_url="$installation_log_url"
-          fi
-        fi
-        echo "Final plan URL: $plan_url"
-      
-        # Extract just the UUID using multiple patterns in order of specificity
-        if [ -n "$plan_url" ]; then
-          plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
-        else
-          plan_id=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
-          if [ -z "$plan_id" ]; then
-            plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
-            if [ -n "$plan_id" ]; then
-              if [ -n "$INPUT_API_URL" ]; then
-                base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
-                plan_url="$base_url/plans/$plan_id"
-              else
-                plan_url="https://app.bluebricks.co/plans/$plan_id"
-              fi
-            fi
-          fi
-        fi
-        echo "Extracted plan ID: $plan_id"
-      
-        if [ -n "$plan_id" ]; then
-          echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
-          echo "plan_url=$plan_url" >> "$GITHUB_OUTPUT"
-          {
-            echo "plan_summary<<EOF"
-            echo "Deployment plan created: $plan_url" >> "$GITHUB_STEP_SUMMARY"
-            echo "Plan ID: $plan_id"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        else
-          echo "plan_id=" >> "$GITHUB_OUTPUT"
-          echo "plan_url=" >> "$GITHUB_OUTPUT"
-        fi
-    }
-
-      # Extract the full URL if present - try multiple patterns
-      plan_url=$(echo "$result" | grep -o 'https://app[^[:space:]]*/plans/[0-9a-f-]*' | head -1 || echo "")
-      echo "Extracted plan URL: $plan_url"
-      
-      # If that fails, try looking for any URL with 'installation log at'
-      if [ -z "$plan_url" ]; then
-        installation_log_url=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | sed 's/installation log at //' | head -1 || echo "")
-        if [ -n "$installation_log_url" ]; then
-          plan_url="$installation_log_url"
-        fi
-      fi
-      echo "Final plan URL: $plan_url"
-
-      # Extract just the UUID using multiple patterns in order of specificity
-      if [ -n "$plan_url" ]; then
-        plan_id=$(echo "$plan_url" | awk -F'/' '{print $NF}')
-      else
-        plan_id=$(echo "$result" | grep -o 'installation log at [^[:space:]]*' | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' || echo "")
-        if [ -z "$plan_id" ]; then
-          plan_id=$(echo "$result" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1 || echo "")
-          if [ -n "$plan_id" ]; then
-            if [ -n "$INPUT_API_URL" ]; then
-              base_url=$(echo "$INPUT_API_URL" | sed 's/api\./app./g')
-              plan_url="$base_url/plans/$plan_id"
-            else
-              plan_url="https://app.bluebricks.co/plans/$plan_id"
-            fi
-          fi
-        fi
-      fi
-      echo "Extracted plan ID: $plan_id"
-    
-    # Call the function to extract plan info
+    # Extract plan information
     extract_plan_info
-
-    # Check for auto-approve logic
-    # If no explicit approval logic is found, ensure that the plan is not auto-approved unless specified
+    
+    # Check for plan-only flag
     if [ "$INPUT_PLAN_ONLY" != "true" ]; then
       echo "::notice::Proceeding Plan Only."
     fi
-
-    # Fetch SVG visualization for deployment
+    
+    # Fetch SVG visualization if plan ID is available
     if [ -n "$plan_id" ]; then
-      if [ -n "$INPUT_API_URL" ]; then
-        api_url="$INPUT_API_URL"
-      else
-        api_url="https://api.bluebricks.co"
-      fi
-
-      # Fetch SVG from API using Bearer token (adjust endpoint if necessary)
-      svg_file="${GITHUB_WORKSPACE}/${plan_id}.svg"
-      echo "Fetching SVG from API: ${api_url}/api/v1/deployment/${plan_id}/image"
-      curl -H "Authorization: Bearer ${INPUT_API_KEY}" \
-          -o "$svg_file" \
-          "${api_url}/api/v1/deployment/${plan_id}/image?format=svg"
-
-      # Check if SVG was fetched successfully
-      if [ -f "$svg_file" ]; then
-        echo "SVG fetched successfully: $svg_file"
-        svg_content=$(cat "$svg_file")
-
-        # Embed SVG inline in step summary
-        echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
-        echo "<details>" >> "$GITHUB_STEP_SUMMARY"
-        echo "<summary>Click to expand deployment diagram</summary>" >> "$GITHUB_STEP_SUMMARY"
-        echo "<div align=\"center\">" >> "$GITHUB_STEP_SUMMARY"
-        echo "$svg_content" >> "$GITHUB_STEP_SUMMARY"
-        echo "</div>" >> "$GITHUB_STEP_SUMMARY"
-        echo "</details>" >> "$GITHUB_STEP_SUMMARY"
-      else
-        echo "::warning::Failed to fetch SVG from API for deployment ID: $plan_id"
-      fi
+      fetch_and_process_svg "$plan_id"
     fi
     ;;
     
   *)
-    # For other commands, just set default outputs
-    # Determine if changes occurred (this is the original behavior)
-    if echo "$result" | grep -q "Updated Blueprints:"; then
-      echo "has_changes=true" >> "$GITHUB_OUTPUT"
-    else
-      echo "has_changes=false" >> "$GITHUB_OUTPUT"
-    fi
+    # For other commands, set has_changes output
+    set_has_changes_output
     ;;
 esac
-
-# If we've reached this point and the command was successful, ensure we have a clean error output
-if [ $CMD_EXIT_CODE -eq 0 ]; then
-  echo "error=" >> "$GITHUB_OUTPUT"
-fi
 
 # Exit with the same code as the command
 exit $CMD_EXIT_CODE
