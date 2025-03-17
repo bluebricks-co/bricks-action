@@ -127,13 +127,12 @@ fetch_and_process_svg() {
     svg_base64=$(base64 -i "$svg_file" -w 0)
     echo "deployment_svg=$svg_base64" >> "$GITHUB_OUTPUT"
 
-    # For step summary, use the raw SVG content
-    svg_content=$(cat "$svg_file")
+    # For step summary, use a link to the SVG instead of raw content
     echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
     echo "<details>" >> "$GITHUB_STEP_SUMMARY"
     echo "<summary>Click to expand deployment diagram</summary>" >> "$GITHUB_STEP_SUMMARY"
     echo "<div align=\"center\">" >> "$GITHUB_STEP_SUMMARY"
-    echo "$svg_content" >> "$GITHUB_STEP_SUMMARY"
+    echo "![Deployment Visualization](data:image/svg+xml;base64,${svg_base64})" >> "$GITHUB_STEP_SUMMARY"
     echo "</div>" >> "$GITHUB_STEP_SUMMARY"
     echo "</details>" >> "$GITHUB_STEP_SUMMARY"
   else
