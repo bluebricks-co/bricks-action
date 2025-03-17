@@ -102,17 +102,33 @@ fetch_and_process_svg() {
   
   svg_file="${GITHUB_WORKSPACE}/${plan_id}.svg"
   echo "Fetching SVG from API: ${api_url}/api/v1/deployment/${plan_id}/image"
-  curl -H "Authorization: Bearer ${INPUT_API_KEY}" \
-      -o "$svg_file" \
+  
+  # Save to temp file first to check for error responses
+  temp_file=$(mktemp)
+  curl -s -H "Authorization: Bearer ${INPUT_API_KEY}" \
+      -o "$temp_file" \
       "${api_url}/api/v1/deployment/${plan_id}/image?format=svg"
+  
+  # Check if the response is an error (contains "error" or "statusCode")
+  if grep -q "error\|statusCode" "$temp_file"; then
+    echo "::warning::API returned an error response. Skipping SVG processing."
+    echo "deployment_svg=" >> "$GITHUB_OUTPUT"
+    rm "$temp_file"
+    return 0
+  fi
+  
+  # Move valid response to SVG file
+  mv "$temp_file" "$svg_file"
 
-  # Check if SVG was fetched successfully
+  # Continue with normal processing
   if [ -f "$svg_file" ]; then
     echo "SVG fetched successfully: $svg_file"
-    svg_content=$(cat "$svg_file")
-    echo "deployment_svg=$svg_content" >> "$GITHUB_OUTPUT"
+    # Base64 encode the SVG to avoid XML parsing issues
+    svg_base64=$(base64 -i "$svg_file" -w 0)
+    echo "deployment_svg=$svg_base64" >> "$GITHUB_OUTPUT"
 
-    # Embed SVG inline in step summary
+    # For step summary, use the raw SVG content
+    svg_content=$(cat "$svg_file")
     echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
     echo "<details>" >> "$GITHUB_STEP_SUMMARY"
     echo "<summary>Click to expand deployment diagram</summary>" >> "$GITHUB_STEP_SUMMARY"
