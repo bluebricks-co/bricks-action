@@ -109,9 +109,8 @@ fetch_and_process_svg() {
   # Check if SVG was fetched successfully
   if [ -f "$svg_file" ]; then
     echo "SVG fetched successfully: $svg_file"
-    svg_content=$(cat "$svg_file" | tr -d '\0')
-    svg_base64=$(cat "$svg_file" | base64 | tr -d '\n')
-    echo "deployment_svg=$svg_base64" >> "$GITHUB_OUTPUT"
+    svg_content=$(cat "$svg_file")
+    echo "deployment_svg=$svg_content" >> "$GITHUB_OUTPUT"
 
     # Embed SVG inline in step summary
     echo "### 📊 Deployment Visualization" >> "$GITHUB_STEP_SUMMARY"
