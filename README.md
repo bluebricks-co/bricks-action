@@ -13,6 +13,7 @@
 - [Overview](#overview)
 - [Usage](#usage)
   - [Example: Update Artifacts and Blueprints](#example-update-artifacts-and-blueprints)
+  - [Example: Install Deployments](#example-install-deployments)
 - [Inputs](#inputs)
 - [Outputs](#outputs)
 - [Prerequisites](#prerequisites)
@@ -79,6 +80,43 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### Example: Install Deployments
+
+This example shows how to deploy infrastructure using the `install` command, which supports deployment plans, environment targeting, and plan-only mode for reviews.
+
+```yaml
+name: Deploy Infrastructure
+
+on:
+  pull_request:
+    paths:
+      - 'deployments/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy with Bricks
+        uses: bluebricks-co/bricks-action@v1.0.0
+        with:
+          command: 'install'
+          file: './deployments/main.yaml'
+          env: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
+          plan-only: ${{ github.event_name == 'pull_request' }}
+          api-key: ${{ secrets.BRICKS_API_KEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
 ---
 
 ## Inputs
@@ -101,6 +139,16 @@ jobs:
 | `api-key`           | String  | —                          | **Required.** Your Bricks API key for authentication.         |
 | `flags`             | String  | —                          | Additional flags to pass to the Bricks CLI command (e.g., `--dry`). |
 
+#### For the `install` Command
+
+| Input        | Type    | Default | Description                                                    |
+|-------------|---------|---------|----------------------------------------------------------------|
+| `file`       | String  | —       | Path to the YAML manifest file for deployment.                  |
+| `env`        | String  | —       | Environment slug as deployment target.                          |
+| `plan-only`  | Boolean | `false` | Create deployment plan without executing the deployment.        |
+| `set-slug`   | String  | —       | Set a custom deployment slug.                                   |
+| `api-key`    | String  | —       | **Required.** Your Bricks API key for authentication.           |
+
 ---
 
 ## Outputs
@@ -112,6 +160,14 @@ For the `updateci` command, the following outputs are available:
 | `has_changes`       | Boolean indicating whether any changes were applied.              |
 | `changes_summary`   | Summary of the changes made to artifacts and blueprints.          |
 | `dependency_graph`  | Dependency graph in the specified format.                         |
+
+For the `install` command, the following outputs are available:
+
+| Output            | Description                                                 |
+|------------------|-------------------------------------------------------------|
+| `deployment_plan` | Detailed deployment plan with resources to change.          |
+| `plan_id`         | Unique identifier for the generated plan.                   |
+| `deployment_svg`  | Base64 encoded SVG visualization of the deployment.         |
 
 ---
 
