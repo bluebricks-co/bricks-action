@@ -268,7 +268,10 @@ case "$INPUT_COMMAND" in
       fetch_and_process_svg "$plan_id"
     fi
     ;;
-    
+
+  bprint|bp)
+    echo "$result" >> "$GITHUB_STEP_SUMMARY"
+    ;;
   *)
     # For other commands, set has_changes output
     set_has_changes_output
