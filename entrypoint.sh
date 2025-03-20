@@ -78,7 +78,7 @@ extract_plan_info() {
 # Handle command exit status
 handle_command_exit() {
   local exit_code=$1
-  if [ $exit_code -ne 0 ]; then
+  if [ "$exit_code" -ne 0 ]; then
     error_message="Command execution failed with exit code $exit_code: ${CMD[*]}"
     echo "::error::$error_message"
     echo "error=\"$error_message\"" >> "$GITHUB_OUTPUT"
@@ -160,13 +160,6 @@ case "$INPUT_COMMAND" in
     CMD+=(--base "$INPUT_BASE")
     CMD+=(--head "$INPUT_HEAD")
     ;;
-  publish|bp)
-    if [ -z "$INPUT_SRC" ]; then
-      echo "Error: src is required for publish command"
-      exit 1
-    fi
-    CMD+=(--src "$INPUT_SRC")
-    ;;
   install)
     # Handle install command arguments
     if [ -n "$INPUT_PACKAGE" ]; then
@@ -182,7 +175,12 @@ case "$INPUT_COMMAND" in
     [ "$INPUT_PLAN_ONLY" == "true" ] && CMD+=(--plan-only)
     [ -n "$INPUT_SET_SLUG" ] && CMD+=(--set-slug "$INPUT_SET_SLUG")
     ;;
-  bprint)
+  bprint|bp)
+    if [ -z "$INPUT_SRC" ]; then
+      echo "Error: src is required for bprint command"
+      exit 1
+    fi
+    CMD+=(--src "$INPUT_SRC")
     if [ "$INPUT_SUBCOMMAND" == "bump" ]; then
       case "$INPUT_BUMP_TYPE" in
         major) CMD+=(--major) ;;
@@ -215,13 +213,15 @@ echo "Executing: ${CMD[*]}"
 echo "----------------------------------------"
 # Capture the output of the bricks command and print it to stdout.
 tmpfile=$(mktemp)
-script -q -c "${CMD[*]}" 2>&1 | tee "$tmpfile"
+script --return -q -c "${CMD[*]}" 2>&1 | tee "$tmpfile"
 CMD_EXIT_CODE=${PIPESTATUS[0]}
 result=$(cat "$tmpfile")
 rm "$tmpfile"
 
 # Log the entire command output for debugging
 echo "Command output: $result"
+
+echo "Command exit code: $CMD_EXIT_CODE"
 
 # Set the exit code as an output
 echo "exit_code=$CMD_EXIT_CODE" >> "$GITHUB_OUTPUT"
@@ -268,7 +268,10 @@ case "$INPUT_COMMAND" in
       fetch_and_process_svg "$plan_id"
     fi
     ;;
-    
+
+  bprint|bp)
+    echo "$result" >> "$GITHUB_STEP_SUMMARY"
+    ;;
   *)
     # For other commands, set has_changes output
     set_has_changes_output
