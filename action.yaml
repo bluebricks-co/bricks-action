@@ -247,7 +247,7 @@ runs:
           const isDryRun = process.env.INPUT_FLAGS && process.env.INPUT_FLAGS.includes('--dry');
 
           // Build the comment body with the Bluebricks image at the top
-          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/public" width="200">\n\n`;
+          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/publicSmall">\n\n`;
 
           // Add update summary section if available
           if (formattedContent) {
@@ -397,7 +397,7 @@ runs:
           const resourceChanges = formatResourceChanges(planMetadata);
 
           // Build the comment body with the Bluebricks image at the top
-          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/public" width="200">\n\n`;
+          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/publicSmall">\n\n`;
 
           // Add a header for the install command with plan URL if available
           if (planId) {
