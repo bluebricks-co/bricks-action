@@ -159,6 +159,13 @@ runs:
         INPUT_API_KEY: ${{ inputs.api-key }}
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
 
+    - name: Fetch Deployment Plan
+      id: fetch-deployment-plan
+      if: inputs.command == 'install' && steps.bricks-command.outputs.plan_id != ''
+      shell: bash
+      run: |
+        echo PLAN_ID=${{ steps.bricks-command.outputs.plan_id }}
+
     - name: Fetch Plan Metadata
       id: fetch-plan-metadata
       if: inputs.command == 'install' && steps.bricks-command.outputs.plan_id != ''
