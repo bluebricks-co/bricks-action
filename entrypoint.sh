@@ -29,6 +29,20 @@ set_api_url() {
 # Initialize API URLs
 set_api_url
 
+make_api_request() {
+  FULL_URL=$api_url$1
+  TEMP_FILE=$(mktemp)
+  HTTP_CODE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${INPUT_API_KEY}" \
+    -o "$TEMP_FILE" "$FULL_URL")
+
+  if [ "$HTTP_CODE" != "200" ]; then
+    rm "$TEMP_FILE"
+    exit 0
+  fi
+  cat "$TEMP_FILE"
+  rm "$TEMP_FILE"
+}
+
 # Extract plan information from command output
 extract_plan_info() {
   echo "Starting plan info extraction"
@@ -69,9 +83,11 @@ extract_plan_info() {
       echo "Plan ID: $plan_id"
       echo "EOF"
     } >> "$GITHUB_OUTPUT"
+    echo artifacts_plan_ids="$(make_api_request "/$plan_id" | jq -r '.children[].deployment')" >> "$GITHUB_OUTPUT"
   else
     echo "plan_id=" >> "$GITHUB_OUTPUT"
     echo "plan_url=" >> "$GITHUB_OUTPUT"
+    echo "artifacts_plan_ids=" >> "$GITHUB_OUTPUT"
   fi
 }
 
