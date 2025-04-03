@@ -73,6 +73,7 @@ extract_plan_info() {
     fi
   fi
   echo "Extracted plan ID: $plan_id"
+  echo "::notice::Extracted plan ID: $plan_id"
 
   if [ -n "$plan_id" ]; then
     echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
@@ -83,7 +84,8 @@ extract_plan_info() {
       echo "Plan ID: $plan_id"
       echo "EOF"
     } >> "$GITHUB_OUTPUT"
-    echo artifacts_plan_ids="$(make_api_request "/$plan_id" | jq -r '.children[].deployment')" >> "$GITHUB_OUTPUT"
+    echo "artifacts_plan_ids=$(make_api_request /$plan_id | jq -r '.children[].deployment')" >> "$GITHUB_OUTPUT"
+    echo "::notice::Extracted artifact ID:$(make_api_request /$plan_id | jq -r '.children[].deployment')"
   else
     echo "plan_id=" >> "$GITHUB_OUTPUT"
     echo "plan_url=" >> "$GITHUB_OUTPUT"
