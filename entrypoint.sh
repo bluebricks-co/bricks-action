@@ -32,6 +32,7 @@ set_api_url
 make_api_request() {
   FULL_URL=$api_url$1
   TEMP_FILE=$(mktemp)
+  curl -H "Authorization: Bearer ${INPUT_API_KEY}" "$FULL_URL"
   HTTP_CODE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${INPUT_API_KEY}" \
     -o "$TEMP_FILE" "$FULL_URL")
 
