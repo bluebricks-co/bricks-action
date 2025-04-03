@@ -36,6 +36,7 @@ make_api_request() {
     -o "$TEMP_FILE" "$FULL_URL")
 
   if [ "$HTTP_CODE" != "200" ]; then
+    echo "::error::$(cat "$TEMP_FILE")"
     rm "$TEMP_FILE"
     exit 0
   fi
@@ -73,7 +74,6 @@ extract_plan_info() {
     fi
   fi
   echo "Extracted plan ID: $plan_id"
-  echo "::notice::Extracted plan ID: $plan_id"
 
   if [ -n "$plan_id" ]; then
     echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
