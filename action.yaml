@@ -283,11 +283,13 @@ runs:
       env:
           API_URL: ${{ inputs.api-url }}
           API_KEY: ${{ inputs.api-key }}
+          INPUT_FILE: ${{ inputs.file }}
           ARTIFACTS_PLAN_IDS: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
       with:
         script: |
           const apiUrl = process.env.API_URL;
           const artifactsPlanIds = process.env.ARTIFACTS_PLAN_IDS.split("\n").filter(id => id.trim() !== "");
+          const deploymentFile = process.env.INPUT_FILE;
     
           if (artifactsPlanIds.length === 0) {
             console.log("No artifact plan IDs found.");
@@ -297,7 +299,7 @@ runs:
           let commentBody = "## Deployment Plans 📜\n\n";
     
           for (const id of artifactsPlanIds) {
-            console.log(`Fetching plan for deployment ID: ${id}`);
+            console.log(`Fetching plan for deployment artifact ID: ${id}`);
             
             const response = await fetch(`${apiUrl}/api/v1/deployment/${id}/plan?format=md`, {
               method: "GET",
@@ -314,7 +316,7 @@ runs:
     
             const mdOutput = await response.text();
     
-            commentBody += `<details>\n<summary>${id}</summary>\n\n`;
+            commentBody += `<details>\n<summary>${deploymentFile}</summary>\n\n`;
             commentBody += `<div>\n\n${mdOutput}\n\n</div>\n`;
             commentBody += `</details>\n\n`;
           }
