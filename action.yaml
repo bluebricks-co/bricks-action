@@ -322,7 +322,7 @@ runs:
     
             const mdOutput = await response.text();
     
-            commentBody += `<details>\n<summary>${deploymentFile} - **${artifact.name}**</summary>\n\n`;
+            commentBody += `<details>\n<summary>${deploymentFile} - <strong>${artifact.name}</strong></summary>\n\n`;
             commentBody += `<div>\n\n${mdOutput}\n\n</div>\n`;
             commentBody += `</details>\n\n`;
           }
