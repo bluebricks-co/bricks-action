@@ -104,7 +104,7 @@ outputs:
     description: 'Unique identifier for the generated deployment plan'
     value: ${{ steps.bricks-command.outputs.plan_id }}
   artifacts_plan_ids:
-    description: 'List of artifacts plan IDs'
+    description: 'Comma separated list of artifacts plan IDs in format <artifact_name>:<plan_id>'
     value: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
   deployment_id:
     description: 'Identifier for the deployment'
@@ -289,7 +289,13 @@ runs:
         script: |
           const apiUrl = process.env.API_URL;
           const deploymentFile = process.env.INPUT_FILE;
-          const artifactsPlanIds = process.env.ARTIFACTS_PLAN_IDS.split(",").map(id => id.trim()).filter(Boolean);
+          const artifactsPlans = process.env.ARTIFACTS_PLAN_IDS
+            .split(",")
+            .map(pair => {
+              const [name, id] = pair.split(":");
+              return { name: name.trim(), id: id.trim() };
+            })
+            .filter(item => item.name && item.id);
     
           if (artifactsPlanIds.length === 0) {
             console.log("No artifact plan IDs found.");
@@ -298,10 +304,10 @@ runs:
     
           let commentBody = "## Deployment Plans 📜\n\n";
     
-          for (const id of artifactsPlanIds) {
-            console.log(`Fetching plan for deployment artifact ID: ${id}`);
+          for (const artifact of artifactsPlans) {
+            console.log(`Fetching plan for: ${artifact.name} (ID: ${artifact.id})`);
             
-            const response = await fetch(`${apiUrl}/api/v1/deployment/${id}/plan?format=md`, {
+            const response = await fetch(`${apiUrl}/api/v1/deployment/${artifact.id}/plan?format=md`, {
               method: "GET",
               headers: {
                 "Authorization": `Bearer ${process.env.API_KEY}`,
@@ -310,13 +316,13 @@ runs:
             });
     
             if (!response.ok) {
-              console.error(`Failed to fetch deployment plan for ID: ${id} (Status: ${response.status})`);
+              console.error(`Failed to fetch deployment plan for ${artifact.name}, ID: ${artifact.id} (Status: ${response.status})`);
               continue;
             }
     
             const mdOutput = await response.text();
     
-            commentBody += `<details>\n<summary>${deploymentFile}</summary>\n\n`;
+            commentBody += `<details>\n<summary>${deploymentFile} - **${artifact.name}**</summary>\n\n`;
             commentBody += `<div>\n\n${mdOutput}\n\n</div>\n`;
             commentBody += `</details>\n\n`;
           }
