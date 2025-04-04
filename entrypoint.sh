@@ -83,7 +83,7 @@ extract_plan_info() {
       echo "Plan ID: $plan_id"
       echo "EOF"
     } >> "$GITHUB_OUTPUT"
-    artifacts_plan_ids="$(make_api_request /api/v1/deployment/$plan_id | jq -r '.children[].deployment')"
+    artifacts_plan_ids="$(make_api_request /api/v1/deployment/$plan_id | jq -r '[.children[].deployment] | join(",")')"
     echo "Extracted artifact IDs: $artifacts_plan_ids"
     echo "artifacts_plan_ids=$artifacts_plan_ids" >> "$GITHUB_OUTPUT"
   else

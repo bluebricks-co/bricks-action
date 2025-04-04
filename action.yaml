@@ -288,8 +288,8 @@ runs:
       with:
         script: |
           const apiUrl = process.env.API_URL;
-          const artifactsPlanIds = process.env.ARTIFACTS_PLAN_IDS.split("\n").filter(id => id.trim() !== "");
           const deploymentFile = process.env.INPUT_FILE;
+          const artifactsPlanIds = process.env.ARTIFACTS_PLAN_IDS.split(",").map(id => id.trim()).filter(Boolean);
     
           if (artifactsPlanIds.length === 0) {
             console.log("No artifact plan IDs found.");
