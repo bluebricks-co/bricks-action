@@ -103,6 +103,9 @@ outputs:
   plan_id:
     description: 'Unique identifier for the generated deployment plan'
     value: ${{ steps.bricks-command.outputs.plan_id }}
+  artifacts_plan_ids:
+    description: 'Comma separated list of artifacts plan IDs in format <artifact_name>:<plan_id>'
+    value: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
   deployment_id:
     description: 'Identifier for the deployment'
     value: ${{ steps.bricks-command.outputs.deployment_id }}
@@ -274,187 +277,61 @@ runs:
         DEPENDENCY_GRAPH: ${{ steps.bricks-command.outputs.dependency_graph }}
         INPUT_FLAGS: ${{ inputs.flags }}
 
-    # Comment on PR for install command
-    - name: Comment on PR for install command
-      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && inputs.command == 'install' && (steps.bricks-command.outputs.deployment_plan != '' || steps.bricks-command.outputs.deployment_id != '' || steps.bricks-command.outputs.error != '')
+    - name: Comment plan output for install command
+      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && inputs.command == 'install' && (steps.bricks-command.outputs.artifacts_plan_ids != '' || steps.bricks-command.outputs.error != '')
       uses: actions/github-script@v7
+      env:
+          API_URL: ${{ inputs.api-url }}
+          API_KEY: ${{ inputs.api-key }}
+          INPUT_FILE: ${{ inputs.file }}
+          ARTIFACTS_PLAN_IDS: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
       with:
         script: |
-          // Format the deployment plan
-          const formatDeploymentPlan = (plan) => {
-            if (!plan) return '';
+          const apiUrl = process.env.API_URL;
+          const deploymentFile = process.env.INPUT_FILE;
+          const artifactsPlans = process.env.ARTIFACTS_PLAN_IDS
+            .split(",")
+            .map(pair => {
+              const [name, id] = pair.split(":");
+              return { name: name.trim(), id: id.trim() };
+            })
+            .filter(item => item.name && item.id);
+    
+          if (artifactsPlans.length === 0) {
+            console.log("No artifact plan IDs found.");
+            return;
+          }
+    
+          let commentBody = "## Deployment Plans 📜\n\n";
+    
+          for (const artifact of artifactsPlans) {
+            console.log(`Fetching plan for: ${artifact.name} (ID: ${artifact.id})`);
             
-            try {
-              const planData = JSON.parse(plan);
-              
-              let formattedPlan = '### 🚀 Deployment Plan\n\n';
-              
-              if (planData.environment) {
-                formattedPlan += `**Target Environment:** ${planData.environment}\n\n`;
-              }
-              
-              if (planData.summary) {
-                formattedPlan += '#### Summary\n\n';
-                formattedPlan += '| Resource Type | Create | Update | Delete |\n';
-                formattedPlan += '|--------------|--------|--------|--------|\n';
-                
-                Object.entries(planData.summary).forEach(([resource, counts]) => {
-                  formattedPlan += `| ${resource} | ${counts.create || 0} | ${counts.update || 0} | ${counts.delete || 0} |\n`;
-                });
-                
-                formattedPlan += '\n';
-              }
-              
-              if (planData.changes && planData.changes.length > 0) {
-                formattedPlan += '#### Detailed Changes\n\n';
-                formattedPlan += '<details>\n<summary>Click to expand</summary>\n\n';
-                
-                planData.changes.forEach(change => {
-                  formattedPlan += `##### ${change.resource_type}: ${change.resource_name}\n\n`;
-                  formattedPlan += `**Action:** ${change.action}\n\n`;
-                  
-                  if (change.details) {
-                    formattedPlan += '```json\n';
-                    formattedPlan += JSON.stringify(change.details, null, 2);
-                    formattedPlan += '\n```\n\n';
-                  }
-                });
-                
-                formattedPlan += '</details>\n\n';
-              }
-              
-              if (planData.warnings && planData.warnings.length > 0) {
-                formattedPlan += '#### ⚠️ Warnings\n\n';
-                planData.warnings.forEach(warning => {
-                  formattedPlan += `- ${warning}\n`;
-                });
-                formattedPlan += '\n';
-              }
-              
-              if (planData.plan_id) {
-                formattedPlan += `**Plan ID:** \`${planData.plan_id}\`\n\n`;
-                formattedPlan += `[View detailed plan in Bricks Dashboard](https://app.bluebricks.dev/plans/${planData.plan_id})\n\n`;
-              }
-              
-              return formattedPlan;
-            } catch (e) {
-              return `### 🚀 Deployment Plan\n\n${plan}\n\n`;
-            }
-          };
-
-          // Format resource changes from metadata
-          const formatResourceChanges = (planMetadata) => {
-            if (!planMetadata || !planMetadata.parsed || !planMetadata.parsed.data || !planMetadata.parsed.data.resources) {
-              return '';
-            }
-            
-            let changedResources = '';
-            changedResources += '### 📊 Resource Changes\n\n';
-            
-            const resources = planMetadata.parsed.data.resources;
-            let hasChanges = false;
-            
-            Object.entries(resources).forEach(([resourceName, resourceDetails]) => {
-              // Check if this resource has any changes
-              const hasPropertyChanges = Object.values(resourceDetails.properties || {}).some(prop => prop.action === 'change');
-              
-              if (hasPropertyChanges) {
-                hasChanges = true;
-                changedResources += `#### ${resourceName}\n\n`;
-                changedResources += '| Property | Action | Current Value | New Value |\n';
-                changedResources += '|----------|--------|--------------|----------|\n';
-                
-                Object.entries(resourceDetails.properties).forEach(([propName, propDetails]) => {
-                  if (propDetails.action === 'change') {
-                    const currentVal = typeof propDetails.state === 'string' ? 
-                      `\`${propDetails.state}\`` : JSON.stringify(propDetails.state);
-                    const newVal = typeof propDetails.planned === 'string' ? 
-                      `\`${propDetails.planned}\`` : JSON.stringify(propDetails.planned);
-                    changedResources += `| **${propName}** | ${propDetails.action} | ${currentVal} | ${newVal} |\n`;
-                  }
-                });
-                
-                changedResources += '\n';
+            const response = await fetch(`${apiUrl}/api/v1/deployment/${artifact.id}/plan?format=md`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${process.env.API_KEY}`,
+                "Accept": "text/markdown"
               }
             });
-            
-            if (!hasChanges) {
-              return '### 📊 Resource Changes\n\nNo resource property changes detected.\n\n';
+    
+            if (!response.ok) {
+              console.error(`Failed to fetch deployment plan for ${artifact.name}, ID: ${artifact.id} (Status: ${response.status})`);
+              continue;
             }
-            
-            return changedResources;
-          };
-
-          // Retrieve data from environment
-          const deploymentPlan = process.env.DEPLOYMENT_PLAN || '';
-          const deploymentSvg = process.env.DEPLOYMENT_SVG || '';
-          const deploymentId = process.env.DEPLOYMENT_ID || '';
-          const planId = process.env.PLAN_ID || '';
-          const errorMessage = process.env.ERROR_MESSAGE || '';
-          const planMetadata = JSON.parse(process.env.PLAN_METADATA || '{}');
-          
-          const formattedPlan = formatDeploymentPlan(deploymentPlan);
-          const resourceChanges = formatResourceChanges(planMetadata);
-
-          // Build the comment body with the Bluebricks image at the top
-          let body = `<img src="https://imagedelivery.net/GRlZt5UrJIr1V5GExj-ycg/07f0eae7-25a9-4983-b51d-d8e378f39c00/publicSmall">\n\n`;
-
-          // Add a header for the install command with plan URL if available
-          if (planId) {
-            body += `### 🧱 Bricks Deployment [View Plan](https://app.bluebricks.dev/plans/${planId})\n\n`;
-          } else {
-            body += `### 🧱 Bricks Deployment\n\n`;
+    
+            const mdOutput = await response.text();
+    
+            commentBody += `<details>\n<summary>${deploymentFile} - <strong>${artifact.name}</strong></summary>\n\n`;
+            commentBody += `<div>\n\n${mdOutput}\n\n</div>\n`;
+            commentBody += `</details>\n\n`;
           }
-          
-          // Add resource changes section
-          if (resourceChanges) {
-            body += resourceChanges;
-          }
-          
-          // Add deployment plan section if available
-          if (formattedPlan) {
-            body += formattedPlan;
-          }
-          
-          // Add SVG visualization if available
-          if (deploymentSvg) {
-            body += `### 📊 Deployment Visualization\n\n<details>\n<summary>Click to expand deployment diagram</summary>\n\n<div align="center">\n\n![Deployment Visualization](data:image/svg+xml;base64,${deploymentSvg})\n\n</div>\n</details>\n\n`;
-          }
-          
-          // Add deployment and plan links if available
-          if (deploymentId || planId) {
-            body += `### 🔗 Bricks Dashboard Links\n\n`;
-            
-            if (planId) {
-              body += `- [View Deployment Plan](https://app.bluebricks.dev/plans/${planId})\n`;
-            }
-            
-            if (deploymentId) {
-              body += `- [View Deployment Details](https://app.bluebricks.dev/deployments/${deploymentId})\n`;
-            }
-            
-            body += `\n`;
-          }
-
-          // Add error message if available
-          if (errorMessage) {
-            body += `### ❌ Error\n\n\`\`\`\n${errorMessage}\n\`\`\`\n\n`;
-          }
-
-          // Append the final signature
-          body += `\n\n<sub>Updated with 💙 by Bluebricks</sub>`;
-
-          // Post the comment on the PR
+        
           await github.rest.issues.createComment({
-            issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: body
+            issue_number: context.issue.number,
+            body: commentBody
           });
-      env:
-        DEPLOYMENT_PLAN: ${{ steps.bricks-command.outputs.deployment_plan }}
-        DEPLOYMENT_ID: ${{ steps.bricks-command.outputs.deployment_id }}
-        DEPLOYMENT_SVG: ${{ steps.bricks-command.outputs.deployment_svg }}
-        PLAN_ID: ${{ steps.bricks-command.outputs.plan_id }}
-        ERROR_MESSAGE: ${{ steps.bricks-command.outputs.error }}
-        PLAN_METADATA: ${{ env.plan_metadata }}
+          
+          console.log("PR comment posted successfully!");
