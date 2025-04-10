@@ -138,6 +138,7 @@ runs:
         # Execute the entrypoint script
         ${{ github.action_path }}/entrypoint.sh
       env:
+        BRICKS_NON_INTERACTIVE: true
         INPUT_COMMAND: ${{ inputs.command }}
         INPUT_SUBCOMMAND: ${{ inputs.subcommand }}
         INPUT_PACKAGE: ${{ inputs.package }}
