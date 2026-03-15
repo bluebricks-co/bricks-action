@@ -21,8 +21,11 @@ inputs:
   file:
     description: 'Path to a YAML manifest file for the install command (used with -f flag)'
     required: false
+  collection:
+    description: 'Collection slug as the deployment target (used with install command)'
+    required: false
   env:
-    description: 'Environment slug as the deployment target (used with install command)'
+    description: 'Deprecated: use `collection` instead'
     required: false
   plan-only:
     description: 'Will create a deployment plan only without executing the deployment (used with install command)'
@@ -97,21 +100,15 @@ outputs:
   dependency_graph:
     description: 'Visual representation of the dependency relationships between updated components'
     value: ${{ steps.bricks-command.outputs.dependency_graph }}
-  deployment_plan:
-    description: 'Detailed deployment plan for install command'
-    value: ${{ steps.bricks-command.outputs.deployment_plan }}
   plan_id:
     description: 'Unique identifier for the generated deployment plan'
     value: ${{ steps.bricks-command.outputs.plan_id }}
+  plan_url:
+    description: 'URL to view the deployment plan in the Bluebricks app'
+    value: ${{ steps.bricks-command.outputs.plan_url }}
   artifacts_plan_ids:
     description: 'Comma separated list of artifacts plan IDs in format <artifact_name>:<plan_id>'
     value: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
-  deployment_id:
-    description: 'Identifier for the deployment'
-    value: ${{ steps.bricks-command.outputs.deployment_id }}
-  deployment_svg:
-    description: 'Base64 encoded SVG visualization of the deployment'
-    value: ${{ steps.bricks-command.outputs.deployment_svg }}
   error:
     description: 'Error message if the command failed'
     value: ${{ steps.bricks-command.outputs.error }}
@@ -126,7 +123,7 @@ runs:
         mkdir -p $HOME/.bricks
         echo "token: Bearer ${{ inputs.api-key }}" > $HOME/.bricks/credentials.yaml
         echo "userid: api_key" >> $HOME/.bricks/credentials.yaml
-        cat "${{ inputs.config-file }}" > $HOME/.bricks/config.yaml
+        [ -f "${{ inputs.config-file }}" ] && cat "${{ inputs.config-file }}" > $HOME/.bricks/config.yaml || true
         bricks version
 
     - name: Run Bricks command
@@ -144,6 +141,7 @@ runs:
         INPUT_PACKAGE: ${{ inputs.package }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_FILE: ${{ inputs.file }}
+        INPUT_COLLECTION: ${{ inputs.collection }}
         INPUT_ENV: ${{ inputs.env }}
         INPUT_PLAN_ONLY: ${{ inputs['plan-only'] }}
         INPUT_SET_SLUG: ${{ inputs['set-slug'] }}
@@ -163,30 +161,113 @@ runs:
         INPUT_API_KEY: ${{ inputs.api-key }}
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
 
-    - name: Fetch Plan Metadata
-      id: fetch-plan-metadata
-      if: inputs.command == 'install' && steps.bricks-command.outputs.plan_id != ''
-      shell: bash
-      run: |
-        PLAN_ID=${{ steps.bricks-command.outputs.plan_id }}
-        API_URL=${{ inputs.api-url }}/api/v1/deployment/$PLAN_ID
-        
-        # Save to temp file first to validate response
-        TEMP_FILE=$(mktemp)
-        HTTP_CODE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${{ inputs.api-key }}" \
-          -o "$TEMP_FILE" "$API_URL")
-        
-        # Check for HTTP success and valid JSON
-        if [ "$HTTP_CODE" != "200" ] || ! jq empty "$TEMP_FILE" 2>/dev/null; then
-          echo "::warning::Failed to fetch valid plan metadata (HTTP $HTTP_CODE). Skipping metadata processing."
-          echo "plan_metadata={}" >> $GITHUB_ENV
-          rm "$TEMP_FILE"
-        else
-          # Clean and sanitize the response
-          cat "$TEMP_FILE" | tr -d '\0' > plan_metadata.json
-          echo "plan_metadata=$(cat plan_metadata.json)" >> $GITHUB_ENV
-          rm "$TEMP_FILE"
-        fi
+    - name: Write install summary and comment
+      if: inputs.command == 'install' && steps.bricks-command.outputs.artifacts_plan_ids != ''
+      uses: actions/github-script@v7
+      env:
+        API_URL: ${{ inputs.api-url }}
+        API_KEY: ${{ inputs.api-key }}
+        INPUT_FILE: ${{ inputs.file }}
+        INPUT_COLLECTION: ${{ inputs.collection }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_PLAN_ONLY: ${{ inputs['plan-only'] }}
+        PLAN_ID: ${{ steps.bricks-command.outputs.plan_id }}
+        ARTIFACTS_PLAN_IDS: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
+      with:
+        script: |
+          const apiUrl = process.env.API_URL;
+          const appUrl = apiUrl.replace('api.', 'app.');
+          const deploymentFile = process.env.INPUT_FILE;
+          const env = process.env.INPUT_COLLECTION || process.env.INPUT_ENV;
+          const planOnly = process.env.INPUT_PLAN_ONLY === 'true';
+          const planId = process.env.PLAN_ID;
+          const planUrl = planId ? `${appUrl}/plans/${planId}` : null;
+          const BOT_LOGIN = 'github-actions[bot]';
+
+          const artifactsPlans = process.env.ARTIFACTS_PLAN_IDS
+            .split(",")
+            .map(pair => {
+              const [name, id] = pair.split(":");
+              return { name: name.trim(), id: id.trim() };
+            })
+            .filter(item => item.name && item.id);
+
+          if (artifactsPlans.length === 0) {
+            console.log("No artifact plan IDs found.");
+            return;
+          }
+
+          // Fetch all plans in parallel
+          const plans = await Promise.all(
+            artifactsPlans.map(async (artifact) => {
+              const response = await fetch(`${apiUrl}/api/v1/deployment/${artifact.id}/plan?format=md`, {
+                method: "GET",
+                headers: {
+                  "Authorization": `Bearer ${process.env.API_KEY}`,
+                  "Accept": "text/markdown"
+                }
+              });
+              if (!response.ok) {
+                console.error(`Failed to fetch plan for ${artifact.name} (Status: ${response.status})`);
+                return { artifact, md: null };
+              }
+              return { artifact, md: await response.text() };
+            })
+          );
+
+          // Write step summary (always)
+          core.summary
+            .addHeading('Bricks Deployment Summary', 1)
+            .addTable([
+              [{ data: 'Input', header: true }, { data: 'Value', header: true }],
+              ['File', deploymentFile || '-'],
+              ['Collection', env || '-'],
+              ['Mode', planOnly ? 'Plan Only' : 'Deploy'],
+              ['Plan', planUrl ? `<a href="${planUrl}">${planId}</a>` : '-'],
+            ]);
+          for (const { artifact, md } of plans) {
+            if (md) core.summary.addDetails(artifact.name, md);
+          }
+          await core.summary.write();
+
+          // Post PR comment (PR events only)
+          const isPR = context.eventName === 'pull_request' || context.eventName === 'pull_request_review';
+          if (!isPR) return;
+
+          let commentBody = "## Deployment Plans 📜\n\n";
+          for (const { artifact, md } of plans) {
+            if (!md) continue;
+            commentBody += `<details>\n<summary>${deploymentFile} - <strong>${artifact.name}</strong></summary>\n\n`;
+            commentBody += `<div>\n\n${md}\n\n</div>\n`;
+            commentBody += `</details>\n\n`;
+          }
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          const existing = comments.find(c =>
+            c.user.login === BOT_LOGIN && c.body.startsWith('## Deployment Plans 📜')
+          );
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body: commentBody
+            });
+            console.log("PR comment updated successfully!");
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: commentBody
+            });
+            console.log("PR comment posted successfully!");
+          }
 
     # Comment on PR for update commands (not install)
     - name: Comment on PR for update commands
@@ -266,73 +347,33 @@ runs:
           // Append the final signature
           body += `\n\n<sub>Updated with 💙 by Bluebricks</sub>`;
 
-          // Post the comment on the PR
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
+          // Upsert: update existing comment if found, otherwise create a new one
+          const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: body
+            issue_number: context.issue.number,
           });
+          const existing = comments.find(c =>
+            c.user.login === 'github-actions[bot]' && c.body.includes('Bricks Update Summary')
+          );
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+          }
       env:
         CHANGES_SUMMARY: ${{ steps.bricks-command.outputs.changes_summary }}
         DEPENDENCY_GRAPH: ${{ steps.bricks-command.outputs.dependency_graph }}
         INPUT_FLAGS: ${{ inputs.flags }}
 
-    - name: Comment plan output for install command
-      if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && inputs.command == 'install' && (steps.bricks-command.outputs.artifacts_plan_ids != '' || steps.bricks-command.outputs.error != '')
-      uses: actions/github-script@v7
-      env:
-          API_URL: ${{ inputs.api-url }}
-          API_KEY: ${{ inputs.api-key }}
-          INPUT_FILE: ${{ inputs.file }}
-          ARTIFACTS_PLAN_IDS: ${{ steps.bricks-command.outputs.artifacts_plan_ids }}
-      with:
-        script: |
-          const apiUrl = process.env.API_URL;
-          const deploymentFile = process.env.INPUT_FILE;
-          const artifactsPlans = process.env.ARTIFACTS_PLAN_IDS
-            .split(",")
-            .map(pair => {
-              const [name, id] = pair.split(":");
-              return { name: name.trim(), id: id.trim() };
-            })
-            .filter(item => item.name && item.id);
-    
-          if (artifactsPlans.length === 0) {
-            console.log("No artifact plan IDs found.");
-            return;
-          }
-    
-          let commentBody = "## Deployment Plans 📜\n\n";
-    
-          for (const artifact of artifactsPlans) {
-            console.log(`Fetching plan for: ${artifact.name} (ID: ${artifact.id})`);
-            
-            const response = await fetch(`${apiUrl}/api/v1/deployment/${artifact.id}/plan?format=md`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${process.env.API_KEY}`,
-                "Accept": "text/markdown"
-              }
-            });
-    
-            if (!response.ok) {
-              console.error(`Failed to fetch deployment plan for ${artifact.name}, ID: ${artifact.id} (Status: ${response.status})`);
-              continue;
-            }
-    
-            const mdOutput = await response.text();
-    
-            commentBody += `<details>\n<summary>${deploymentFile} - <strong>${artifact.name}</strong></summary>\n\n`;
-            commentBody += `<div>\n\n${mdOutput}\n\n</div>\n`;
-            commentBody += `</details>\n\n`;
-          }
-        
-          await github.rest.issues.createComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-            body: commentBody
-          });
-          
-          console.log("PR comment posted successfully!");

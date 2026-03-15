@@ -82,7 +82,7 @@ jobs:
 
 ### Example: Install Deployments
 
-This example shows how to deploy infrastructure using the `install` command, which supports deployment plans, environment targeting, and plan-only mode for reviews.
+This example shows how to deploy infrastructure using the `install` command, which supports deployment plans, collection targeting, and plan-only mode for reviews.
 
 ```yaml
 name: Deploy Infrastructure
@@ -110,7 +110,7 @@ jobs:
         with:
           command: 'install'
           file: './deployments/main.yaml'
-          env: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
+          collection: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
           plan-only: ${{ github.event_name == 'pull_request' }}
           api-key: ${{ secrets.BRICKS_API_KEY }}
         env:
@@ -144,7 +144,8 @@ jobs:
 | Input        | Type    | Default | Description                                                    |
 |-------------|---------|---------|----------------------------------------------------------------|
 | `file`       | String  | —       | Path to the YAML manifest file for deployment.                  |
-| `env`        | String  | —       | Environment slug as deployment target.                          |
+| `collection` | String  | —       | Collection slug as the deployment target.                       |
+| `env`        | String  | —       | Deprecated: use `collection` instead.                           |
 | `plan-only`  | Boolean | `false` | Create deployment plan without executing the deployment.        |
 | `set-slug`   | String  | —       | Set a custom deployment slug.                                   |
 | `api-key`    | String  | —       | **Required.** Your Bricks API key for authentication.           |
@@ -163,11 +164,11 @@ For the `updateci` command, the following outputs are available:
 
 For the `install` command, the following outputs are available:
 
-| Output            | Description                                                 |
-|------------------|-------------------------------------------------------------|
-| `deployment_plan` | Detailed deployment plan with resources to change.          |
-| `plan_id`         | Unique identifier for the generated plan.                   |
-| `deployment_svg`  | Base64 encoded SVG visualization of the deployment.         |
+| Output              | Description                                                      |
+|---------------------|------------------------------------------------------------------|
+| `plan_id`           | Unique identifier for the generated plan.                        |
+| `plan_url`          | URL to view the deployment plan in the Bluebricks app.           |
+| `artifacts_plan_ids`| Comma-separated list of artifact plan IDs (`name:id` format).   |
 
 ---
 
